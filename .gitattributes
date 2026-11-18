@@ -1,0 +1,26 @@
+* text=auto eol=lf
+*.sh text eol=lf
+gradlew text eol=lf
+*.bat text eol=crlf
+*.json text eol=lf
+*.kt text eol=lf
+*.java text eol=lf
+*.md text eol=lf
+*.apk binary
+*.apks binary
+*.xapk binary
+*.aab binary
+*.dex binary
+*.jar binary
+*.keystore binary
+*.jks binary
+*.pem binary
+*.pk8 binary
+*.idsig binary
+*.mpp binary
+*.mpe binary
+*.so binary
+*.ttf binary
+*.otf binary
+*.png binary
+*.jpg binary

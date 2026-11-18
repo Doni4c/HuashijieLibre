@@ -1,0 +1,85 @@
+package app.morphe.patches.huashijie.tier6_extensions
+
+import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
+import app.morphe.patches.huashijie.core.MultiVersionResolvers
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toFingerprint
+import app.morphe.patches.huashijie.core.emitTranslationDispatch
+import app.morphe.patches.huashijie.core.findMoveResultObjectAfter
+import app.morphe.patches.huashijie.core.hookBottomSheetOnStartDispatch
+import app.morphe.patches.huashijie.core.hookPaintBubblePopupBeforeShow
+import app.morphe.patches.huashijie.core.hookPopupShowAsDropDownDispatch
+import app.morphe.patches.huashijie.core.libreSettingsPatch
+import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
+import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
+import app.morphe.patches.huashijie.core.thisRegisterIndex
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+
+private const val TOGGLE_KEY = "libre_canvas_popup_polish"
+private const val WORKSPACE_UI_CONTROLLER =
+    "Lapp/morphe/extension/huashijie/WorkspaceUiController;"
+private const val OP_CANVAS_POPUP_POLISH = 73
+
+@Suppress("unused")
+val canvasPopupLayoutPolishPatch = bytecodePatch(
+    name = "Canvas Popup Geometric Polish",
+    description = "Compacts empty popup scroll cushions, centers button clusters, and balances PaintActivity popup dimensions and floating reference headers.",
+    default = true,
+) {
+    dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)
+    compatibleWith(HUASHIJIE_COMPATIBILITY)
+    extendWith("extensions/huashijie-libre.mpe")
+
+    execute {
+        registerToggleBeforeSettingsPanel(TOGGLE_KEY)
+
+        val classes = allClasses()
+        val bubbleClass = MultiVersionResolvers.resolveBubblePopupClass(classes)
+        val bubbleType = bubbleClass.type
+        val paintClass = MultiVersionResolvers.resolvePaintActivityClass(classes)
+
+        for (method in listOf(
+            MultiVersionResolvers.resolvePaintPopup1Menu(paintClass, bubbleType),
+            MultiVersionResolvers.resolvePaintPopup2Brush(paintClass, bubbleType),
+            MultiVersionResolvers.resolvePaintPopup3Canvas(paintClass, bubbleType),
+            MultiVersionResolvers.resolvePaintPopup4Ref(paintClass, bubbleType),
+        )) {
+            hookPaintBubblePopupBeforeShow(
+                toFingerprint(method),
+                "${WORKSPACE_UI_CONTROLLER}->optimizeCanvasSettingPopup(Landroid/view/View;)V",
+            )
+        }
+
+        val showCustomFp = toFingerprint(MultiVersionResolvers.resolveBubblePopupShowAtLocationCustom(bubbleClass))
+        val showCustomMethod = showCustomFp.method
+        val instrs = showCustomMethod.implementation!!.instructions
+        val getContentIdx = instrs.indexOfFirst { inst ->
+            val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference
+            ref != null &&
+                ref.name == "getContentView" &&
+                ref.returnType == "Landroid/view/View;" &&
+                ref.parameterTypes.isEmpty()
+        }
+        val (moveIdx, _) = checkNotNull(instrs.findMoveResultObjectAfter(getContentIdx)) {
+            "Expected MOVE_RESULT_OBJECT after getContentView in BubblePopupWindow"
+        }
+        emitTranslationDispatch(
+            method = showCustomMethod,
+            insertIndex = moveIdx + 1,
+            opCode = OP_CANVAS_POPUP_POLISH,
+            preserveLabels = true,
+        ) { m, _ ->
+            m.thisRegisterIndex()
+        }
+
+        hookBottomSheetOnStartDispatch(OP_CANVAS_POPUP_POLISH)
+        val searchHelperClass = MultiVersionResolvers.resolveSearchHelperClass(classes)
+        val searchDropdown = MultiVersionResolvers.resolveSearchHelperShowDropdown(searchHelperClass)
+        val fastKeyDropdown = MultiVersionResolvers.resolveFastKeyFragmentShowDropdown(classes)
+        for (dropdownMethod in listOf(searchDropdown, fastKeyDropdown)) {
+            hookPopupShowAsDropDownDispatch(toFingerprint(dropdownMethod), OP_CANVAS_POPUP_POLISH)
+        }
+    }
+}

@@ -1,0 +1,48 @@
+package app.morphe.patches.huashijie.tier6_extensions
+
+import app.morphe.patcher.Fingerprint
+import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
+import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
+import app.morphe.patches.huashijie.core.libreSettingsPatch
+import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
+import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
+import app.morphe.patches.huashijie.core.thisRegisterIndex
+
+private const val TOGGLE_KEY = "libre_touch_outside_dismiss"
+private const val HANDLE_TOUCH_OUTSIDE =
+    "Lapp/morphe/extension/huashijie/UiUxController;->handlePaintTouchOutside(Landroid/app/Activity;Landroid/view/MotionEvent;)V"
+
+private val paintDispatchTouchFingerprint = Fingerprint(
+    name = "dispatchTouchEvent",
+    returnType = "Z",
+    parameters = listOf("Landroid/view/MotionEvent;"),
+    custom = { _, classDef ->
+        classDef.type == "Lnet/huanci/hsjpro/activities/PaintActivity;"
+    },
+)
+
+@Suppress("unused")
+val lassoTapOutsideExitPatch = bytecodePatch(
+    name = "Lasso Tap-Outside Exit",
+    description = "Lets artists tap once outside an active Lasso or selection area to confirm and exit selection mode back to the brush.",
+    default = true,
+) {
+    dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)
+    compatibleWith(HUASHIJIE_COMPATIBILITY)
+    extendWith("extensions/huashijie-libre.mpe")
+
+    execute {
+        registerToggleBeforeSettingsPanel(TOGGLE_KEY)
+
+        val method = paintDispatchTouchFingerprint.method
+        val thisReg = method.thisRegisterIndex()
+        val evReg = thisReg + 1
+        val invokeSmali = if (thisReg in 0..15 && evReg in 0..15) {
+            "invoke-static {v$thisReg, v$evReg}, $HANDLE_TOUCH_OUTSIDE"
+        } else {
+            "invoke-static/range {v$thisReg .. v$evReg}, $HANDLE_TOUCH_OUTSIDE"
+        }
+        method.addInstructionsPreservingLabels(0, invokeSmali)
+    }
+}

@@ -1,0 +1,1188 @@
+{
+  "version": "v1.0.0-beta.1",
+  "appNames": {
+    "net.huanci.hsjpro": "HuashijiePro"
+  },
+  "patches": [
+    {
+      "name": "Block Brush Upgrade Tip",
+      "description": "Silences promotional brush upgrade banners and tooltips in SelectPenView while routing classes4.dex through TranslationEngine.dispatch.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Block Bugly Crash SDK",
+      "description": "Prevents Tencent Bugly remote crash reporting SDK from initializing in the background.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Block Host Telemetry SDKs",
+      "description": "Prevents xCrash and MarsXlog native crash and logging libraries from initializing in FlashActivity.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Block Umeng Analytics SDK",
+      "description": "Prevents Umeng UMConfigure analytics and device tracking routines from initializing.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Canvas Popup Geometric Polish",
+      "description": "Compacts empty popup scroll cushions, centers button clusters, and balances PaintActivity popup dimensions and floating reference headers.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Canvas Popup HSJ Path Row",
+      "description": "Appends a tap to toast local .hsj project folder row inside the PaintActivity canvas info panel.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Custom Brush Sovereignty",
+      "description": "Unlocks full offline parameter editing, renaming, and duplicating for all preset and imported local brushes without account ownership checks.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Custom UI Font Injection",
+      "description": "Applies your chosen .ttf or .otf fonts from /sdcard/HuashijiePro/fonts/ across the app while keeping bold and italic styles.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Dynamic External Translation Engine",
+      "description": "Translates the HuashijiePro studio interface from external JSON packs with instant switching.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Language Pack Resources",
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "External Local Brush Scanning",
+      "description": "Scans local ASBrush directories on startup and guards loaded brush package lists for offline brush import workflows.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Floating Brush Sliders",
+      "description": "Adds a draggable grip handle above the brush size and opacity sliders so artists can reposition them freely.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "HSJ File Path Display",
+      "description": "Displays clear local .hsj draft and export storage directory cards inside DraftStorageSettingActivity for easy manual backup.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Baidu Cloud Backup Entry",
+      "description": "Safely hides the domestic third-party Baidu Netdisk backup entry inside the main navigation drawer with View.GONE.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Brush Library Shop",
+      "description": "Hides the online brush shop button inside the full Brush Library modal independently from the canvas pen picker.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Canvas Popup Cloud Sync",
+      "description": "Hides the cloud draft button and cloud sync tab inside the PaintActivity canvas settings popup and rebalances remaining controls.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Community Tabs",
+      "description": "Hides the domestic community and discovery tabs on MainActivity with View.GONE while keeping the local draft workspace visible.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Domestic Export Social Icons",
+      "description": "Hides domestic social sharing channels in ExportPictureView and PaintActivity export popups via TranslationEngine.dispatch.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Draft Cloud Badge",
+      "description": "Hides the 9 cloud sync status badges and progress strips on draft artwork thumbnails in DraftAdapter and DraftAdapter2.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Drawer VIP Banner",
+      "description": "Safely hides the promotional VIP membership banner inside the main navigation drawer with View.GONE.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Exit Cloud Sync Option",
+      "description": "Hides the domestic cloud sync switch and storage notice inside the canvas exit confirmation dialog while preserving local save and exit actions.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Online Brush Shop",
+      "description": "Hides the online brush shop button inside the canvas quick pen picker while preserving all preset and imported brushes.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Online Canvas Templates",
+      "description": "Hides the online canvas template button on CreateCanvasActivity and centers the 3 local creation buttons with weightSum = 3.0f.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Personalized Ads Setting",
+      "description": "Safely hides the domestic personalized ads preference row inside GeneralSettingActivity with View.GONE.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Timelapse Export Social Icons",
+      "description": "Hides domestic social sharing buttons inside the timelapse video export panel while keeping local save and resolution choices intact.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Hide Top Bar Cloud Button",
+      "description": "Hides top bar cloud sync buttons and blocks native visibility resets and click handlers using the zero new method ref bridge.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Instant Launch to Studio",
+      "description": "Skips the splash countdown on FlashActivity and preloads the brush engine directly into the draft gallery.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Language Pack Resources",
+      "description": "Bundles built-in localization dictionaries (English and Chinese source) and supports extensible community language packs.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Lasso Tap-Outside Exit",
+      "description": "Lets artists tap once outside an active Lasso or selection area to confirm and exit selection mode back to the brush.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Libre In App Settings Panel",
+      "description": "Adds the HuashijieLibre settings panel inside General Settings so you can tune options anytime.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Local Artist Profile",
+      "description": "Maintains an offline artist profile in memory so local tools such as PDF export work smoothly without domestic phone login prompts.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Narrow Button Text Auto Fit",
+      "description": "Scales text sizes and handles wrapping cleanly on narrow tabs, buttons, and dialogs for longer translated labels across non-Chinese scripts.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Native Android Share Sheet",
+      "description": "Routes export sharing in PaintActivity to the Android System Share Sheet via Intent.createChooser instead of ShareSDK.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Native Signature Bypass",
+      "description": "Allows customized HuashijiePro builds to launch smoothly without failing internal signature checks.",
+      "category": null,
+      "use": true,
+      "dependencies": [],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Replay Android Share Sheet",
+      "description": "Routes timelapse export sharing inside ReplayActivity to the Android System Share Sheet instead of ShareSDK.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Suppress Splash Ad Loading",
+      "description": "Blocks splash advertisement ad slot loading checks inside FlashActivity independently of Instant Launch.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Two-Finger Reference Rotation",
+      "description": "Unlocks smooth two-finger free rotation inside the floating reference image window.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Watermark Free Timelapse Export",
+      "description": "Removes the brand watermark overlay during ReplayActivity preview and speedpaint video export while preserving video quality.",
+      "category": null,
+      "use": true,
+      "dependencies": [
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    }
+  ]
+}
