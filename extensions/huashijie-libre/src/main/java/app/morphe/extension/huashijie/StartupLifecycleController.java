@@ -2,9 +2,11 @@ package app.morphe.extension.huashijie;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.os.Build;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 /**
  * Huashijie Libre startup and lifecycle controller.
@@ -34,13 +36,31 @@ public final class StartupLifecycleController {
                 return false;
             }
 
-            // Synchronize watchdog flag DrawApplication.OooO0o = true
+            Intent origIntent = flashActivity.getIntent();
+            if (origIntent != null) {
+                String action = origIntent.getAction();
+                if ((action != null && !Intent.ACTION_MAIN.equals(action))
+                        || origIntent.getData() != null
+                        || (Build.VERSION.SDK_INT >= 16 && origIntent.getClipData() != null)
+                        || origIntent.hasExtra(Intent.EXTRA_STREAM)) {
+                    return false;
+                }
+            }
+
+            // Synchronize watchdog flag DrawApplication.OooO0o = true before starting MainActivity
             try {
                 Class<?> appClz = Class.forName("net.huanci.hsjpro.DrawApplication");
-                Object app = LibreResourceResolver.getStaticSingleton(appClz, "OooO0oO");
+                Object app = flashActivity.getApplication();
+                if (app == null || !appClz.isInstance(app)) {
+                    app = LibreResourceResolver.getStaticSingleton(appClz, "OooO0oO");
+                }
                 Field f = LibreResourceResolver.findField(appClz, "OooO0o", boolean.class, null);
-                if (app != null && f != null) {
-                    f.setBoolean(app, true);
+                if (f != null) {
+                    if (Modifier.isStatic(f.getModifiers())) {
+                        f.setBoolean(null, true);
+                    } else if (app != null) {
+                        f.setBoolean(app, true);
+                    }
                 }
             } catch (Throwable ignored) {}
 
@@ -78,36 +98,31 @@ public final class StartupLifecycleController {
             } catch (Throwable ignored) {}
 
             if (!flashActivity.isTaskRoot()) {
-                    Intent orig = flashActivity.getIntent();
-                    if (orig != null && orig.hasCategory(Intent.CATEGORY_LAUNCHER) && Intent.ACTION_MAIN.equals(orig.getAction())) {
-                        flashActivity.finish();
-                        return true;
-                    }
-                }
-
-                Intent intent = new Intent();
-                intent.setClassName(flashActivity.getPackageName(), "net.huanci.hsjpro.activities.MainActivity");
-                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-
-                Intent origIntent = flashActivity.getIntent();
-                if (origIntent != null) {
-                    if (origIntent.getAction() != null) {
-                        intent.setAction(origIntent.getAction());
-                    }
-                    if (origIntent.getData() != null) {
-                        intent.setData(origIntent.getData());
-                    }
-                    if (origIntent.getExtras() != null) {
-                        intent.putExtras(origIntent.getExtras());
-                    }
-                }
-
-                flashActivity.startActivity(intent);
                 flashActivity.finish();
-                try {
-                    flashActivity.overridePendingTransition(0, 0);
-                } catch (Throwable ignored) {}
                 return true;
+            }
+
+            Intent intent = new Intent();
+            intent.setClassName(flashActivity.getPackageName(), "net.huanci.hsjpro.activities.MainActivity");
+
+            if (origIntent != null) {
+                if (origIntent.getAction() != null) {
+                    intent.setAction(origIntent.getAction());
+                }
+                if (origIntent.getData() != null) {
+                    intent.setData(origIntent.getData());
+                }
+                if (origIntent.getExtras() != null) {
+                    intent.putExtras(origIntent.getExtras());
+                }
+            }
+
+            flashActivity.startActivity(intent);
+            flashActivity.finish();
+            try {
+                flashActivity.overridePendingTransition(0, 0);
+            } catch (Throwable ignored) {}
+            return true;
         } catch (Throwable t) {
             t.printStackTrace();
         }

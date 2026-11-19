@@ -79,7 +79,7 @@ public final class LocalBrushController {
      * Ensures BrushPackage list is never null to prevent crash in PaintView.initBrush().
      */
     public static List<?> ensureBrushPackageList(Object list) {
-        if (!isExternalBrushImportActive()) {
+        if (!isExternalBrushImportActive() && !StartupLifecycleController.isInstantLaunchActive()) {
             return list instanceof List ? (List<?>) list : java.util.Collections.emptyList();
         }
         if (list instanceof List && !((List<?>) list).isEmpty()) {

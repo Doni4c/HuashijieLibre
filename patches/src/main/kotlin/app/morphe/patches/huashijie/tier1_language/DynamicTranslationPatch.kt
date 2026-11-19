@@ -13,6 +13,7 @@ import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.resolveSingleClass
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.emitTranslationDispatch
@@ -984,6 +985,7 @@ val dynamicTranslationPatch = bytecodePatch(
 
         hookBottomSheetOnStartDispatch(OP_DIALOG_PRE_SHOW)
         hookAllHuanciPopupWindows(classes3Dex = classes3Dex, classes4Dex = classes4Dex)
+        hookRecentDelPopupMenu()
         hookAdapterBindTranslations()
 
         // 5. Global DEX call-site hooks across net/huanci/ in classes3.dex and classes4.dex.
@@ -1369,4 +1371,41 @@ private fun BytecodePatchContext.hookHuanciCanvasDrawText() {
             }
         }
     }
+}
+
+private fun BytecodePatchContext.hookRecentDelPopupMenu() {
+    val recentDelClass = allClasses().resolveSingleClass("RecentDelDraftActivity") {
+        it.type == "Lnet/huanci/hsjpro/activities/RecentDelDraftActivity;"
+    }
+    val mutableClass = mutableClassDefBy(recentDelClass)
+    val targetMethod = mutableClass.methods.firstOrNull { m ->
+        val instrs = m.implementation?.instructions ?: return@firstOrNull false
+        var hasInflate = false
+        var hasTopRight = false
+        for (insn in instrs) {
+            val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference ?: continue
+            if (ref.definingClass == "Landroid/view/LayoutInflater;" && ref.name == "inflate") {
+                hasInflate = true
+            } else if (ref.definingClass == "Lnet/huanci/hsjpro/views/TopBar;" && ref.name == "getImageView_right") {
+                hasTopRight = true
+            }
+        }
+        hasInflate && hasTopRight
+    } ?: error("Popup builder method not found in RecentDelDraftActivity")
+
+    val instrs = targetMethod.implementation!!.instructions
+    val inflateIdx = instrs.indexOfFirst { insn ->
+        val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference ?: return@indexOfFirst false
+        ref.definingClass == "Landroid/view/LayoutInflater;" && ref.name == "inflate"
+    }
+    val (moveResultIdx, viewReg) = checkNotNull(instrs.findMoveResultObjectAfter(inflateIdx)) {
+        "Expected MOVE_RESULT_OBJECT after LayoutInflater.inflate in RecentDelDraftActivity"
+    }
+    emitDispatchConstantAt(
+        method = targetMethod,
+        insertIndex = moveResultIdx + 1,
+        opCode = OP_TRANSLATE_AND_OBSERVE,
+        argReg = viewReg,
+        preserveLabels = true,
+    )
 }

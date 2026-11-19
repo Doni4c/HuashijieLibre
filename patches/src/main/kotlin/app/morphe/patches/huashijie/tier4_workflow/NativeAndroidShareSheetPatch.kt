@@ -9,6 +9,7 @@ import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.resolveSingleClass
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
@@ -16,12 +17,20 @@ import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
 private const val TOGGLE_KEY = "libre_system_share_sheet"
 private const val HANDLE_SHARE_METHOD =
     "Lapp/morphe/extension/huashijie/GlobalCompatibilityController;->handleShare(Landroid/app/Activity;Ljava/lang/String;)Z"
 
 internal fun BytecodePatchContext.injectSystemShareGuard(method: MutableMethod) {
+    val alreadyHooked = method.implementation!!.instructions.any { insn ->
+        val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference
+        ref != null && "${ref.definingClass}->${ref.name}${ref.parameterTypes.joinToString("", "(", ")")}${ref.returnType}" == HANDLE_SHARE_METHOD
+    }
+    if (alreadyHooked) return
+
     val origThis = method.thisRegisterIndex()
     val origPath = origThis + 2
     val (target1, low1, idx1) = resolveLowRegisterAt(
@@ -89,4 +98,14 @@ val nativeAndroidShareSheetPatch = bytecodePatch(
         val shareMethod = toMutableMethod(MultiVersionResolvers.resolveActivityShareCallback(paintClass))
         injectSystemShareGuard(shareMethod)
     }
+}
+
+internal fun BytecodePatchContext.ensureExportActivityShareCallbacksHooked() {
+    val classes = allClasses()
+    val paintClass = MultiVersionResolvers.resolvePaintActivityClass(classes)
+    injectSystemShareGuard(toMutableMethod(MultiVersionResolvers.resolveActivityShareCallback(paintClass)))
+    val replayClass = classes.resolveSingleClass("ReplayActivity") {
+        it.type == "Lnet/huanci/hsjpro/activities/ReplayActivity;"
+    }
+    injectSystemShareGuard(toMutableMethod(MultiVersionResolvers.resolveActivityShareCallback(replayClass)))
 }

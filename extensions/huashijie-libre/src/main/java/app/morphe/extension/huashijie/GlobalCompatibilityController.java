@@ -1,18 +1,28 @@
 package app.morphe.extension.huashijie;
 
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Process;
-import android.os.StrictMode;
 import android.view.View;
+import android.widget.CompoundButton;
 
 import java.io.File;
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 
 /**
  * Huashijie Libre global compatibility and telemetry decoupling controller.
@@ -20,8 +30,95 @@ import java.util.ArrayList;
  * intercepts and suppresses telemetry and crash SDKs, and provides safe app restarts.
  */
 public final class GlobalCompatibilityController {
+    private static final long PENDING_BUTTON_SHARE_TTL_MS = 45000L;
+    private static volatile boolean sFileProviderResolved = false;
+    private static volatile Method sFileProviderGetUriMethod = null;
+    private static volatile boolean sHostUriHelperResolved = false;
+    private static volatile Method sHostUriHelperMethod = null;
+    private static volatile WeakReference<Activity> sPendingButtonShareActivity = new WeakReference<>(null);
+    private static volatile long sPendingButtonShareAtMs = 0L;
+
+    private static final class SystemShareClickListener implements View.OnClickListener {
+        private final WeakReference<Object> mExportViewRef;
+
+        SystemShareClickListener(Object exportPictureView) {
+            mExportViewRef = new WeakReference<>(exportPictureView);
+        }
+
+        @Override
+        public void onClick(View v) {
+            triggerSystemShareExport(mExportViewRef.get());
+        }
+    }
 
     private GlobalCompatibilityController() {}
+
+    private static Uri resolveShareUri(Context ctx, File targetFile) {
+        if (ctx == null || targetFile == null) return null;
+        try {
+            if (!sFileProviderResolved) {
+                try {
+                    Class<?> fpClz = Class.forName("androidx.core.content.FileProvider");
+                    sFileProviderGetUriMethod = LibreResourceResolver.findMethod(
+                            fpClz, "getUriForFile", Uri.class, true,
+                            Context.class, String.class, File.class);
+                } catch (Throwable ignored) {}
+                sFileProviderResolved = true;
+            }
+            if (sFileProviderGetUriMethod != null) {
+                Uri uri = (Uri) sFileProviderGetUriMethod.invoke(
+                        null, ctx, ctx.getPackageName() + ".fileprovider", targetFile);
+                if (uri != null) {
+                    return uri;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            if (!sHostUriHelperResolved) {
+                try {
+                    Class<?> helperClz = Class.forName("o000OoOO.Oooo000");
+                    sHostUriHelperMethod = LibreResourceResolver.findMethod(
+                            helperClz, "Oooo00O", Uri.class, true,
+                            Context.class, File.class);
+                } catch (Throwable ignored) {}
+                sHostUriHelperResolved = true;
+            }
+            if (sHostUriHelperMethod != null) {
+                Uri uri = (Uri) sHostUriHelperMethod.invoke(null, ctx, targetFile);
+                if (uri != null) {
+                    return uri;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        if (Build.VERSION.SDK_INT < 24) {
+            return Uri.fromFile(targetFile);
+        }
+        return null;
+    }
+
+    private static String resolveArtistMimeType(String nameLower) {
+        if (nameLower == null) return "application/octet-stream";
+        if (nameLower.endsWith(".png")) return "image/png";
+        if (nameLower.endsWith(".jpg") || nameLower.endsWith(".jpeg")) return "image/jpeg";
+        if (nameLower.endsWith(".webp")) return "image/webp";
+        if (nameLower.endsWith(".gif")) return "image/gif";
+        if (nameLower.endsWith(".tif") || nameLower.endsWith(".tiff")) return "image/tiff";
+        if (nameLower.endsWith(".psd")) return "image/vnd.adobe.photoshop";
+        if (nameLower.endsWith(".pdf")) return "application/pdf";
+        if (nameLower.endsWith(".mp4")) return "video/mp4";
+        if (nameLower.endsWith(".zip")) return "application/zip";
+        if (nameLower.endsWith(".hsj")
+                || nameLower.endsWith(".asbrush")
+                || nameLower.endsWith(".brush")
+                || nameLower.endsWith(".bru")
+                || nameLower.endsWith(".lbru")
+                || nameLower.endsWith(".abr")) {
+            return "application/octet-stream";
+        }
+        return "application/octet-stream";
+    }
 
     /**
      * Trampoline hook called from PaintActivity.o00000oO(Platform, String, int, boolean)V.
@@ -38,7 +135,9 @@ public final class GlobalCompatibilityController {
             LibreConfig.init(activity);
             boolean isReplay = activity.getClass().getName().endsWith(".ReplayActivity");
             String shareKey = isReplay ? LibreConfig.KEY_REPLAY_SYSTEM_SHARE : LibreConfig.KEY_SYSTEM_SHARE;
-            if (!LibreConfig.isFeatureActive(shareKey)) {
+            boolean shareSheetActive = LibreConfig.isFeatureActive(shareKey);
+            boolean fromButtonShare = consumePendingButtonSystemShare(activity);
+            if (!shareSheetActive && !fromButtonShare) {
                 return false;
             }
 
@@ -47,36 +146,63 @@ public final class GlobalCompatibilityController {
                 return false;
             }
 
-            String lower = filePath.toLowerCase();
-            String mimeType = "*/*";
-            if (lower.endsWith(".png")) {
-                mimeType = "image/png";
-            } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
-                mimeType = "image/jpeg";
-            } else if (lower.endsWith(".psd")) {
-                mimeType = "image/vnd.adobe.photoshop";
-            } else if (lower.endsWith(".mp4")) {
-                mimeType = "video/mp4";
-            } else if (lower.endsWith(".gif")) {
-                mimeType = "image/gif";
+            Intent shareIntent;
+            if (file.isDirectory()) {
+                File[] children = file.listFiles();
+                if (children == null || children.length == 0) {
+                    return false;
+                }
+                Arrays.sort(children, Comparator.comparing(File::getName));
+                ArrayList<Uri> uris = new ArrayList<>();
+                ClipData clipData = null;
+                for (File child : children) {
+                    if (child != null && child.isFile() && child.canRead()) {
+                        Uri u = resolveShareUri(activity, child);
+                        if (u != null) {
+                            uris.add(u);
+                            if (Build.VERSION.SDK_INT >= 16) {
+                                if (clipData == null) {
+                                    clipData = ClipData.newRawUri(child.getName(), u);
+                                } else {
+                                    clipData.addItem(new ClipData.Item(u));
+                                }
+                            }
+                        }
+                    }
+                }
+                if (uris.isEmpty()) {
+                    return false;
+                }
+                shareIntent = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                shareIntent.setType("image/*");
+                shareIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                if (Build.VERSION.SDK_INT >= 16 && clipData != null) {
+                    shareIntent.setClipData(clipData);
+                }
+            } else if (file.isFile()) {
+                Uri fileUri = resolveShareUri(activity, file);
+                if (fileUri == null) {
+                    return false;
+                }
+                String mimeType = resolveArtistMimeType(filePath.toLowerCase());
+                shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType(mimeType);
+                shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+                if (Build.VERSION.SDK_INT >= 16) {
+                    shareIntent.setClipData(ClipData.newRawUri(file.getName(), fileUri));
+                }
+                shareIntent.putExtra(Intent.EXTRA_TITLE, file.getName());
+                shareIntent.putExtra(Intent.EXTRA_SUBJECT, file.getName());
+            } else {
+                return false;
             }
 
-            try {
-                StrictMode.VmPolicy.Builder builder = new StrictMode.VmPolicy.Builder();
-                StrictMode.setVmPolicy(builder.build());
-            } catch (Throwable ignored) {}
-
-            Uri fileUri = Uri.fromFile(file);
-
-            Intent shareIntent = new Intent(Intent.ACTION_SEND);
-            shareIntent.setType(mimeType);
-            shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
             shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
             String chooserTitle = TranslationEngine.get(
                     "libre_share_chooser_title", "\u753b\u4e16\u754c Libre\uff1a\u5206\u4eab\u4f5c\u54c1");
             Intent chooser = Intent.createChooser(shareIntent, chooserTitle);
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             activity.startActivity(chooser);
 
             return true;
@@ -113,6 +239,7 @@ public final class GlobalCompatibilityController {
     public static void restartApp(Context context) {
         if (context == null) return;
         try {
+            LibreConfig.flushSync();
             String packageName = context.getPackageName();
             Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(packageName);
             if (launchIntent != null) {
@@ -159,43 +286,288 @@ public final class GlobalCompatibilityController {
         return LibreConfig.isFeatureActive(LibreConfig.KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL);
     }
 
+    public static boolean isExportShareButtonActive() {
+        return LibreConfig.isFeatureActive(LibreConfig.KEY_EXPORT_SHARE_BUTTON);
+    }
+
+    private static void markPendingButtonSystemShare(Activity hostActivity) {
+        sPendingButtonShareActivity = new WeakReference<>(hostActivity);
+        sPendingButtonShareAtMs = android.os.SystemClock.uptimeMillis();
+    }
+
+    private static boolean consumePendingButtonSystemShare(Activity activity) {
+        long atMs = sPendingButtonShareAtMs;
+        if (atMs <= 0L) {
+            return false;
+        }
+        long elapsed = android.os.SystemClock.uptimeMillis() - atMs;
+        if (elapsed < 0L || elapsed > PENDING_BUTTON_SHARE_TTL_MS) {
+            sPendingButtonShareAtMs = 0L;
+            return false;
+        }
+        Activity pendingAct = sPendingButtonShareActivity != null ? sPendingButtonShareActivity.get() : null;
+        if (pendingAct != null && activity != null && pendingAct != activity) {
+            return false;
+        }
+        sPendingButtonShareAtMs = 0L;
+        sPendingButtonShareActivity = new WeakReference<>(null);
+        return true;
+    }
+
+    private static boolean hasSystemShareLogo(ArrayList list) {
+        if (list == null) return false;
+        for (Object item : list) {
+            if (item == null) continue;
+            try {
+                Field listenerField = LibreResourceResolver.findField(
+                        item.getClass(), "listener", View.OnClickListener.class, null);
+                Object l = listenerField != null ? listenerField.get(item) : null;
+                if (l instanceof SystemShareClickListener) {
+                    return true;
+                }
+            } catch (Throwable ignored) {}
+        }
+        return false;
+    }
+
     /**
-     * Purges domestic Chinese social media platforms from export sheets,
-     * preserving local file/album options and system share sheet.
+     * Purges domestic Chinese social media platforms from export sheets when configured,
+     * and optionally appends the standalone Android System Share button alongside Album/File.
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     public static void sanitizeExportLists(Object exportPictureView, ArrayList list0, ArrayList list4) {
-        if (!isHideExportSocialIconsActive()) return;
+        boolean hideSocial = isHideExportSocialIconsActive();
+        boolean addShareButton = isExportShareButtonActive();
+        if (!hideSocial && !addShareButton) return;
         if (list0 == null && list4 == null) return;
         try {
-            ArrayList keep = new ArrayList();
-            if (list0 != null) {
-                for (Object item : list0) {
-                    if (isAllowedExportItem(item)) {
-                        keep.add(item);
+            if (hideSocial) {
+                ArrayList keep = new ArrayList();
+                if (list0 != null) {
+                    for (Object item : list0) {
+                        if (isAllowedExportItem(item)) {
+                            keep.add(item);
+                        }
                     }
+                    list0.clear();
                 }
-                list0.clear();
-            }
-            if (list4 != null) {
-                for (Object item : list4) {
-                    if (isAllowedExportItem(item)) {
-                        keep.add(item);
+                if (list4 != null) {
+                    for (Object item : list4) {
+                        if (isAllowedExportItem(item)) {
+                            keep.add(item);
+                        }
                     }
+                    list4.clear();
                 }
-                list4.clear();
+
+                if (list0 != null) {
+                    list0.addAll(keep);
+                }
+
+                if (exportPictureView != null) {
+                    hideExportField(exportPictureView, "OooOOO");
+                    hideExportField(exportPictureView, "OooOOo0");
+                    hideExportField(exportPictureView, "OooOOoo");
+                }
             }
 
-            if (list0 != null) {
-                list0.addAll(keep);
-            }
-
-            if (exportPictureView != null) {
-                hideExportField(exportPictureView, "OooOOO");
-                hideExportField(exportPictureView, "OooOOo0");
-                hideExportField(exportPictureView, "OooOOoo");
+            if (addShareButton && list0 != null && exportPictureView != null && !hasSystemShareLogo(list0)) {
+                Context ctx = resolveExportHostContext(exportPictureView);
+                if (ctx != null) {
+                    Object shareLogo = createSystemShareCustomerLogo(exportPictureView, ctx);
+                    if (shareLogo != null) {
+                        list0.add(shareLogo);
+                    }
+                }
             }
         } catch (Throwable ignored) {}
+    }
+
+    private static Activity resolveExportHostActivity(Object exportPictureView) {
+        if (exportPictureView == null) return null;
+        try {
+            Method getActivity = LibreResourceResolver.findMethod(
+                    exportPictureView.getClass(), "getActivity", null, false);
+            if (getActivity != null) {
+                Object act = getActivity.invoke(exportPictureView);
+                if (act instanceof Activity) {
+                    return (Activity) act;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static Context resolveExportHostContext(Object exportPictureView) {
+        Activity act = resolveExportHostActivity(exportPictureView);
+        if (act != null) return act;
+        if (exportPictureView == null) return null;
+        try {
+            Method getCtx = LibreResourceResolver.findMethod(
+                    exportPictureView.getClass(), "getContext", null, false);
+            if (getCtx != null) {
+                Object ctx = getCtx.invoke(exportPictureView);
+                if (ctx instanceof Context) {
+                    return (Context) ctx;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static Bitmap createSystemShareIconBitmap(Context ctx) {
+        float density = ctx.getResources().getDisplayMetrics().density;
+        int size = Math.max(48, Math.round(32 * density));
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(Color.WHITE);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+
+        float s = (float) size;
+        float r = s * 0.115f;
+        float leftX = s * 0.25f;
+        float leftY = s * 0.50f;
+        float rightX = s * 0.72f;
+        float topY = s * 0.24f;
+        float botY = s * 0.76f;
+
+        paint.setStrokeWidth(s * 0.085f);
+        canvas.drawLine(leftX, leftY, rightX, topY, paint);
+        canvas.drawLine(leftX, leftY, rightX, botY, paint);
+        canvas.drawCircle(leftX, leftY, r, paint);
+        canvas.drawCircle(rightX, topY, r, paint);
+        canvas.drawCircle(rightX, botY, r, paint);
+        return bmp;
+    }
+
+    private static Object createSystemShareCustomerLogo(final Object exportPictureView, Context ctx) {
+        try {
+            Class<?> logoClz = Class.forName("cn.sharesdk.onekeyshare.CustomerLogo");
+            Constructor<?> ctor = logoClz.getDeclaredConstructor(
+                    String.class, Bitmap.class, View.OnClickListener.class, int.class);
+            ctor.setAccessible(true);
+            String label = TranslationEngine.get("libre_export_system_share", "\u7cfb\u7edf\u5206\u4eab");
+            Bitmap icon = createSystemShareIconBitmap(ctx);
+            View.OnClickListener listener = new SystemShareClickListener(exportPictureView);
+            return ctor.newInstance(label, icon, listener, 2);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static void triggerSystemShareExport(Object epv) {
+        if (epv == null) return;
+        try {
+            Class<?> epvClz = epv.getClass();
+            Object cb = readObjField(epvClz, epv, "OooOOOo");
+            if (cb == null) return;
+
+            int format = readIntField(epvClz, epv, "OooOOOO", 0);
+            Object wmView = readObjField(epvClz, epv, "OooOOo");
+            boolean wmChecked = (wmView instanceof CompoundButton) && ((CompoundButton) wmView).isChecked();
+            boolean flag20 = readBoolField(epvClz, epv, "OooOo0", false);
+            Object sizeCb = readObjField(epvClz, epv, "OooOoO0");
+            Object sizeType = readObjField(epvClz, epv, "OooOo0O");
+            int w = readIntField(epvClz, epv, "OooOo0o", 0);
+            int h = readIntField(epvClz, epv, "OooOo", 0);
+
+            Class<?> platformClz = Class.forName("cn.sharesdk.framework.Platform");
+            Class<?> sizeCbClz = Class.forName("net.huanci.hsjpro.views.ExportPictureView$OooO0o$OooO00o");
+            Class<?> sizeTypeClz = Class.forName("net.huanci.paintlib.enums.ExportPictureSizeType");
+            Method exportMethod = LibreResourceResolver.findMethod(
+                    cb.getClass(),
+                    "OooOoo0",
+                    void.class,
+                    false,
+                    int.class,
+                    int.class,
+                    platformClz,
+                    boolean.class,
+                    boolean.class,
+                    sizeCbClz,
+                    sizeTypeClz,
+                    int.class,
+                    int.class);
+            if (exportMethod != null) {
+                markPendingButtonSystemShare(resolveExportHostActivity(epv));
+                Object platform = null;
+                try {
+                    exportMethod.invoke(cb, 2, format, platform, wmChecked, flag20, sizeCb, sizeType, w, h);
+                } catch (Throwable primaryErr) {
+                    try {
+                        markPendingButtonSystemShare(resolveExportHostActivity(epv));
+                        Class<?> wechatClz = Class.forName("cn.sharesdk.wechat.friends.Wechat");
+                        platform = wechatClz.getDeclaredConstructor().newInstance();
+                        exportMethod.invoke(cb, 2, format, platform, wmChecked, flag20, sizeCb, sizeType, w, h);
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            Method dismissMethod = LibreResourceResolver.findMethod(epvClz, "dismiss", void.class, false);
+            if (dismissMethod != null) {
+                dismissMethod.invoke(epv);
+            }
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
+    }
+
+    /**
+     * Rebinds item click listeners on CustomPlatformPageAdapter ViewHolders so injected
+     * System Share entries invoke their custom listener while recycled Album/File slots
+     * restore the adapter's mClickListener.
+     */
+    public static void bindCustomExportClick(Object adapter, View rootView) {
+        if (rootView == null) return;
+        try {
+            Object tag = rootView.getTag();
+            if (tag != null && "cn.sharesdk.onekeyshare.CustomerLogo".equals(tag.getClass().getName())) {
+                Field listenerField = LibreResourceResolver.findField(
+                        tag.getClass(), "listener", View.OnClickListener.class, null);
+                Object listener = listenerField != null ? listenerField.get(tag) : null;
+                if (listener instanceof View.OnClickListener) {
+                    rootView.setOnClickListener((View.OnClickListener) listener);
+                    return;
+                }
+            }
+            if (adapter != null) {
+                Field clickField = LibreResourceResolver.findField(
+                        adapter.getClass(), "mClickListener", View.OnClickListener.class, null);
+                Object origListener = clickField != null ? clickField.get(adapter) : null;
+                if (origListener instanceof View.OnClickListener) {
+                    rootView.setOnClickListener((View.OnClickListener) origListener);
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static Object readObjField(Class<?> cls, Object host, String name) {
+        try {
+            Field f = LibreResourceResolver.findField(cls, name, null, null);
+            return f != null ? f.get(host) : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static int readIntField(Class<?> cls, Object host, String name, int fallback) {
+        try {
+            Field f = LibreResourceResolver.findField(cls, name, null, null);
+            return f != null ? f.getInt(host) : fallback;
+        } catch (Throwable ignored) {
+            return fallback;
+        }
+    }
+
+    private static boolean readBoolField(Class<?> cls, Object host, String name, boolean fallback) {
+        try {
+            Field f = LibreResourceResolver.findField(cls, name, null, null);
+            return f != null ? f.getBoolean(host) : fallback;
+        } catch (Throwable ignored) {
+            return fallback;
+        }
     }
 
     private static void hideExportField(Object host, String fieldName) {
@@ -237,7 +609,7 @@ public final class GlobalCompatibilityController {
      */
     public static String getDiagnosticsReport(Context context) {
         StringBuilder sb = new StringBuilder();
-        sb.append("### Huashijie Libre: Diagnostics Report\n\n");
+        sb.append("### HuashijieLibre: Diagnostics Report\n\n");
 
         sb.append("#### 1. Device & Runtime\n");
         sb.append("1. **Device:** ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n");

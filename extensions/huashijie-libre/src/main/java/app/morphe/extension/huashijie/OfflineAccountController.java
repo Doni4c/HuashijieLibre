@@ -37,13 +37,24 @@ public final class OfflineAccountController {
                 return;
             }
             Object user = uField.get(null);
+            Class<?> buClz = Class.forName("net.huanci.hsjpro.model.result.user.BaseUser");
+            if (user != null) {
+                Field idField = LibreResourceResolver.findField(buClz, "id", null, null);
+                if (idField != null) {
+                    int existingId = idField.getInt(user);
+                    if (existingId > 0 && existingId != 76) {
+                        Log.i(TAG, "Preserving existing signed-in user session");
+                        return;
+                    }
+                }
+            }
+
             Class<?> luClz = Class.forName("net.huanci.hsjpro.model.LoginUser");
             if (user == null) {
                 user = luClz.getDeclaredConstructor().newInstance();
                 uField.set(null, user);
             }
 
-            Class<?> buClz = Class.forName("net.huanci.hsjpro.model.result.user.BaseUser");
             setIntField(buClz, user, "id", 76);
             setIntField(buClz, user, "vipId", 3);
             setIntField(buClz, user, "vipLevel", 3);

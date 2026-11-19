@@ -10,6 +10,7 @@ import app.morphe.patcher.util.addInstructionsAtControlFlowLabel
 import app.morphe.patcher.util.findFreeRegister
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
@@ -23,6 +24,13 @@ internal const val LIBRE_SETTINGS_INJECTOR_CLASS =
     "Lapp/morphe/extension/huashijie/LibreSettingsInjector;"
 internal const val LIBRE_TRANSLATION_DISPATCH =
     "Lapp/morphe/extension/huashijie/TranslationEngine;->dispatch(ILjava/lang/Object;)Ljava/lang/Object;"
+private const val OP_ENSURE_BRUSH_PACKAGE_LIST = 51
+
+private val drawApplicationOnCreateFingerprint = exactClassMethodFingerprint(
+    "Lnet/huanci/hsjpro/DrawApplication;",
+    "onCreate",
+    "V",
+)
 
 internal val generalSettingInitViewFingerprint = Fingerprint(
     name = "initView",
@@ -404,6 +412,68 @@ internal fun BytecodePatchContext.registerToggleBeforeSettingsPanel(toggleKey: S
     )
 }
 
+internal fun BytecodePatchContext.ensureBrushPkgManagerGetListHooked() {
+    val classes = allClasses()
+    val mgrClass = MultiVersionResolvers.resolveBrushPkgManagerClass(classes)
+    var method = toMutableMethod(MultiVersionResolvers.resolveBrushPkgManagerGetList(mgrClass))
+    val alreadyHooked = method.implementation!!.instructions.any { inst ->
+        val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: return@any false
+        "${ref.definingClass}->${ref.name}(${ref.parameterTypes.joinToString("")})${ref.returnType}" ==
+            LIBRE_TRANSLATION_DISPATCH
+    }
+    if (alreadyHooked) {
+        return
+    }
+
+    val retIndices = method.implementation!!.instructions.indices
+        .filter { method.implementation!!.instructions[it].opcode == Opcode.RETURN_OBJECT }
+        .reversed()
+    check(retIndices.isNotEmpty()) {
+        "RETURN_OBJECT not found in BrushPkgManager getList(Z)List"
+    }
+    for (retIdx in retIndices) {
+        val origRetReg = (method.implementation!!.instructions[retIdx] as OneRegisterInstruction).registerA
+        val (target1, opScratch, idx1) = resolveLowRegisterAt(
+            method = method,
+            insertIndex = retIdx,
+            origRetReg,
+        )
+        val resolvedRetReg = (target1.implementation!!.instructions[idx1] as OneRegisterInstruction).registerA
+        if (resolvedRetReg in 0..15) {
+            target1.addInstructionsPreservingLabels(
+                idx1,
+                """
+                const/16 v$opScratch, $OP_ENSURE_BRUSH_PACKAGE_LIST
+                invoke-static {v$opScratch, v$resolvedRetReg}, $LIBRE_TRANSLATION_DISPATCH
+                move-result-object v$resolvedRetReg
+                check-cast v$resolvedRetReg, Ljava/util/List;
+                """.trimIndent(),
+            )
+            method = target1
+        } else {
+            val (target2, objScratch, idx2) = resolveLowRegisterAt(
+                method = target1,
+                insertIndex = idx1,
+                opScratch,
+                resolvedRetReg,
+            )
+            val finalRetReg = (target2.implementation!!.instructions[idx2] as OneRegisterInstruction).registerA
+            target2.addInstructionsPreservingLabels(
+                idx2,
+                """
+                const/16 v$opScratch, $OP_ENSURE_BRUSH_PACKAGE_LIST
+                move-object/from16 v$objScratch, v$finalRetReg
+                invoke-static {v$opScratch, v$objScratch}, $LIBRE_TRANSLATION_DISPATCH
+                move-result-object v$objScratch
+                check-cast v$objScratch, Ljava/util/List;
+                move-object/from16 v$finalRetReg, v$objScratch
+                """.trimIndent(),
+            )
+            method = target2
+        }
+    }
+}
+
 @Suppress("unused")
 val libreSettingsPatch = bytecodePatch(
     name = "Libre In App Settings Panel",
@@ -416,6 +486,19 @@ val libreSettingsPatch = bytecodePatch(
 
     execute {
         registerToggleBeforeSettingsPanel("libre_enable_animations")
+
+        val appOnCreate = drawApplicationOnCreateFingerprint.method
+        val appInstrs = appOnCreate.implementation!!.instructions
+        check(appInstrs.isNotEmpty() && appInstrs[0].opcode == Opcode.INVOKE_SUPER) {
+            "Expected INVOKE_SUPER at index 0 of DrawApplication.onCreate()V"
+        }
+        appOnCreate.addInstructionsPreservingLabels(
+            1,
+            formatInvokeStaticSingle(
+                "Lapp/morphe/extension/huashijie/LibreConfig;->init(Landroid/content/Context;)V",
+                appOnCreate.thisRegisterIndex(),
+            ),
+        )
 
         val method = generalSettingInitViewFingerprint.method
         val instructions = method.implementation!!.instructions

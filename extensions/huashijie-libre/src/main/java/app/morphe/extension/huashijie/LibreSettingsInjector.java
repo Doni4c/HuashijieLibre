@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -25,6 +26,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
@@ -161,7 +163,7 @@ public final class LibreSettingsInjector {
 
             TextView titleView = new TextView(activity);
             titleView.setTag(TAG_ENTRY_TITLE);
-            titleView.setText(TranslationEngine.get("libre_settings_title", "Huashijie Libre"));
+            titleView.setText(TranslationEngine.get("libre_settings_title", "HuashijieLibre"));
             titleView.setTextSize(16.0f);
             titleView.setTypeface(Typeface.DEFAULT_BOLD);
             titleView.setTextColor(Color.parseColor("#1A73E8"));
@@ -216,7 +218,7 @@ public final class LibreSettingsInjector {
             if (entry == null) return;
             View titleView = entry.findViewWithTag(TAG_ENTRY_TITLE);
             if (titleView instanceof TextView) {
-                ((TextView) titleView).setText(TranslationEngine.get("libre_settings_title", "Huashijie Libre"));
+                ((TextView) titleView).setText(TranslationEngine.get("libre_settings_title", "HuashijieLibre"));
             }
             View descView = entry.findViewWithTag(TAG_ENTRY_DESC);
             if (descView instanceof TextView) {
@@ -488,12 +490,13 @@ public final class LibreSettingsInjector {
                     animIds[3]);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
-            LinearLayout mainLayout = new LinearLayout(activity);
+            final LinearLayout mainLayout = new LinearLayout(activity);
             mainLayout.setOrientation(LinearLayout.VERTICAL);
             mainLayout.setLayoutParams(new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-            mainLayout.addView(buildTopBar(activity, dialog, isNight, colorCard, colorTextPrimary, colorAccent));
+            final LinearLayout topBar = buildTopBar(activity, dialog, isNight, colorCard, colorTextPrimary, colorAccent);
+            mainLayout.addView(topBar);
 
             View topDivider = new View(activity);
             topDivider.setLayoutParams(new LinearLayout.LayoutParams(
@@ -506,10 +509,12 @@ public final class LibreSettingsInjector {
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
             scrollView.setVerticalScrollBarEnabled(false);
 
-            LinearLayout contentList = new LinearLayout(activity);
+            final LinearLayout contentList = new LinearLayout(activity);
             contentList.setOrientation(LinearLayout.VERTICAL);
-            int padH = dpToPx(activity, 14);
-            contentList.setPadding(padH, dpToPx(activity, 8), padH, dpToPx(activity, 72));
+            final int padH = dpToPx(activity, 14);
+            final int contentPadTop = dpToPx(activity, 8);
+            final int contentPadBottom = dpToPx(activity, 72);
+            contentList.setPadding(padH, contentPadTop, padH, contentPadBottom);
 
             final LinearLayout restartBanner = createRestartBanner(activity, isNight);
             if (showRestartBanner) {
@@ -545,6 +550,42 @@ public final class LibreSettingsInjector {
 
             rootContainer.addView(mainLayout);
             rootContainer.addView(restartBanner);
+
+            if (Build.VERSION.SDK_INT >= 20) {
+                final int topBarPadH = dpToPx(activity, 16);
+                final int topBarMinH = dpToPx(activity, 54);
+                final int bannerPadH = dpToPx(activity, 16);
+                final int bannerPadV = dpToPx(activity, 12);
+                rootContainer.setOnApplyWindowInsetsListener((v, insets) -> {
+                    int insetLeft;
+                    int insetTop;
+                    int insetRight;
+                    int insetBottom;
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        Insets sys = insets.getInsets(
+                                WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                        insetLeft = sys.left;
+                        insetTop = sys.top;
+                        insetRight = sys.right;
+                        insetBottom = sys.bottom;
+                    } else {
+                        insetLeft = insets.getSystemWindowInsetLeft();
+                        insetTop = insets.getSystemWindowInsetTop();
+                        insetRight = insets.getSystemWindowInsetRight();
+                        insetBottom = insets.getSystemWindowInsetBottom();
+                    }
+                    topBar.setPadding(topBarPadH, insetTop, topBarPadH, 0);
+                    topBar.setMinimumHeight(topBarMinH + insetTop);
+                    mainLayout.setPadding(insetLeft, 0, insetRight, 0);
+                    contentList.setPadding(padH, contentPadTop, padH, contentPadBottom + insetBottom);
+                    restartBanner.setPadding(
+                            bannerPadH + insetLeft,
+                            bannerPadV,
+                            bannerPadH + insetRight,
+                            bannerPadV + insetBottom);
+                    return insets;
+                });
+            }
 
             dialog.setContentView(rootContainer);
             if (dialog.getWindow() != null) {
@@ -606,6 +647,9 @@ public final class LibreSettingsInjector {
                 if (dialog.getWindow() != null) {
                     syncHostSystemBarAppearance(activity, dialog.getWindow(), isNight, colorCard, colorBg);
                 }
+                if (Build.VERSION.SDK_INT >= 20) {
+                    rootContainer.requestApplyInsets();
+                }
                 if (!runAnimations && rootContainer.getVisibility() != View.VISIBLE) {
                     rootContainer.setVisibility(View.VISIBLE);
                 }
@@ -633,7 +677,8 @@ public final class LibreSettingsInjector {
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         topBar.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        topBar.setMinimumHeight(dpToPx(activity, 54));
         topBar.setBackgroundColor(colorCard);
         topBar.setPadding(dpToPx(activity, 16), 0, dpToPx(activity, 16), 0);
 
@@ -649,7 +694,7 @@ public final class LibreSettingsInjector {
         topBar.addView(btnBack);
 
         TextView tvTitle = new TextView(activity);
-        tvTitle.setText(TranslationEngine.get("libre_settings_title", "Huashijie Libre"));
+        tvTitle.setText(TranslationEngine.get("libre_settings_title", "HuashijieLibre"));
         tvTitle.setTextSize(17.5f);
         tvTitle.setTypeface(Typeface.DEFAULT_BOLD);
         tvTitle.setTextColor(colorTextPrimary);
@@ -715,9 +760,7 @@ public final class LibreSettingsInjector {
                     config.isEnabled(LibreConfig.KEY_DYNAMIC_I18N, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
-                        config.setEnabled(LibreConfig.KEY_DYNAMIC_I18N, isChecked);
-                        TranslationEngine.loadSelectedLanguagePack();
-                        TranslationEngine.retranslateActiveViews(activity);
+                        TranslationEngine.setDynamicI18nEnabled(activity, isChecked);
                         refreshEntryRow(activity);
                         reopenSettingsDialog(activity, dialog, restartBanner.getVisibility() == View.VISIBLE);
                     });
@@ -919,7 +962,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_baidu_backup", "隐藏百度网盘备份入口"),
                     TranslationEngine.get("libre_desc_hide_baidu_backup",
-                            "移除常规设置里的百度网盘云备份项。关闭并重启可重新显示。"),
+                            "隐藏首页侧边栏里的百度网盘备份入口，让抽屉菜单更清爽。关闭并重启可重新显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_BAIDU_BACKUP, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -1061,6 +1104,7 @@ public final class LibreSettingsInjector {
                 LibreConfig.KEY_CLEAN_SPEEDPAINT,
                 LibreConfig.KEY_SYSTEM_SHARE,
                 LibreConfig.KEY_REPLAY_SYSTEM_SHARE,
+                LibreConfig.KEY_EXPORT_SHARE_BUTTON,
                 LibreConfig.KEY_HIDE_EXPORT_SOCIAL_ICONS,
                 LibreConfig.KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL,
                 LibreConfig.KEY_PUBLIC_STORAGE,
@@ -1099,6 +1143,16 @@ public final class LibreSettingsInjector {
                     config.isEnabled(LibreConfig.KEY_REPLAY_SYSTEM_SHARE, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_REPLAY_SYSTEM_SHARE, isChecked));
+        }
+
+        if (isToggleRegistered(LibreConfig.KEY_EXPORT_SHARE_BUTTON)) {
+            addSwitchWithDivider(activity, card, colorDivider,
+                    TranslationEngine.get("libre_opt_export_share_button", "在导出面板显示系统分享按钮"),
+                    TranslationEngine.get("libre_desc_export_share_button",
+                            "在导出弹窗底部的相册和文件旁添加系统分享入口，一次点击即可把作品或延时视频发往外部应用。关闭后仅保留本地保存选项。"),
+                    config.isEnabled(LibreConfig.KEY_EXPORT_SHARE_BUTTON, true),
+                    colorTextPrimary, colorTextSecondary,
+                    (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_EXPORT_SHARE_BUTTON, isChecked));
         }
 
         if (isToggleRegistered(LibreConfig.KEY_HIDE_EXPORT_SOCIAL_ICONS)) {
@@ -1240,7 +1294,7 @@ public final class LibreSettingsInjector {
                     ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
                     if (cm != null) {
                         ClipData clip = ClipData.newPlainText(
-                                "Huashijie Libre Diagnostics", buildDiagnosticsReport(activity));
+                                "HuashijieLibre Diagnostics", buildDiagnosticsReport(activity));
                         cm.setPrimaryClip(clip);
                         Toast.makeText(activity,
                                 TranslationEngine.get("libre_toast_copied", "诊断报告已复制到剪贴板"),
@@ -1400,7 +1454,7 @@ public final class LibreSettingsInjector {
         try {
             String title = TranslationEngine.get("libre_credits_title", "致谢");
             String body = TranslationEngine.get("libre_credits_body",
-                    "1. 项目作者与维护：Doni4c（Huashijie Libre）\n"
+                    "1. 项目作者与维护：Doni4c（HuashijieLibre）\n"
                             + "2. 应用内修补框架：Morphe\n"
                             + "3. 参与多语言翻译与实机体验测试的社区画师与贡献者");
             AlertDialog dlg = newThemedAlertBuilder(activity, isNight)
@@ -1917,36 +1971,21 @@ public final class LibreSettingsInjector {
                 ? dialog.getWindow().getDecorView()
                 : null;
 
-        if (activityDecor != null) {
-            UIFontManager.applyCustomTypeface(activityDecor);
-            if (targetFont.isEmpty()) {
-                resetDefaultTypeface(activityDecor);
+        if (targetFont.isEmpty()) {
+            if (activityDecor != null) {
+                UIFontManager.resetDefaultTypeface(activityDecor);
+            }
+            if (dialogDecor != null) {
+                UIFontManager.resetDefaultTypeface(dialogDecor);
+            }
+        } else {
+            if (activityDecor != null) {
+                UIFontManager.applyCustomTypeface(activityDecor);
+            }
+            if (dialogDecor != null) {
+                UIFontManager.applyCustomTypeface(dialogDecor);
             }
         }
-        if (dialogDecor != null) {
-            UIFontManager.applyCustomTypeface(dialogDecor);
-            if (targetFont.isEmpty()) {
-                resetDefaultTypeface(dialogDecor);
-            }
-        }
-    }
-
-    private static void resetDefaultTypeface(View root) {
-        if (root == null) return;
-        try {
-            if (root instanceof TextView) {
-                TextView tv = (TextView) root;
-                Typeface current = tv.getTypeface();
-                int style = current != null ? current.getStyle() : Typeface.NORMAL;
-                tv.setTypeface(Typeface.DEFAULT, style);
-            } else if (root instanceof ViewGroup) {
-                ViewGroup vg = (ViewGroup) root;
-                int count = vg.getChildCount();
-                for (int i = 0; i < count; i++) {
-                    resetDefaultTypeface(vg.getChildAt(i));
-                }
-            }
-        } catch (Throwable ignored) {}
     }
 
     private static LinearLayout createRestartBanner(Activity activity, boolean isNight) {
@@ -1990,6 +2029,7 @@ public final class LibreSettingsInjector {
 
     private static void restartApplication(Activity activity) {
         try {
+            LibreConfig.flushSync();
             Intent intent = activity.getPackageManager().getLaunchIntentForPackage(activity.getPackageName());
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -2097,6 +2137,7 @@ public final class LibreSettingsInjector {
             appendToggleDiag(sb, reported, LibreConfig.KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL, "Hide Timelapse Export Social", String.valueOf(cfg.isEnabled(LibreConfig.KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL, true)));
             appendToggleDiag(sb, reported, LibreConfig.KEY_SYSTEM_SHARE, "System Share Sheet", String.valueOf(cfg.isEnabled(LibreConfig.KEY_SYSTEM_SHARE, true)));
             appendToggleDiag(sb, reported, LibreConfig.KEY_REPLAY_SYSTEM_SHARE, "Replay System Share Sheet", String.valueOf(cfg.isEnabled(LibreConfig.KEY_REPLAY_SYSTEM_SHARE, true)));
+            appendToggleDiag(sb, reported, LibreConfig.KEY_EXPORT_SHARE_BUTTON, "Export Share Button", String.valueOf(cfg.isEnabled(LibreConfig.KEY_EXPORT_SHARE_BUTTON, true)));
             appendToggleDiag(sb, reported, LibreConfig.KEY_PUBLIC_STORAGE, "Storage Transparency", String.valueOf(cfg.isEnabled(LibreConfig.KEY_PUBLIC_STORAGE, true)));
             appendToggleDiag(sb, reported, LibreConfig.KEY_CANVAS_HSJ_PATH_ROW, "Canvas Popup HSJ Path Row", String.valueOf(cfg.isEnabled(LibreConfig.KEY_CANVAS_HSJ_PATH_ROW, true)));
             appendToggleDiag(sb, reported, LibreConfig.KEY_BLOCK_TELEMETRY, "Block Native Telemetry", String.valueOf(cfg.isEnabled(LibreConfig.KEY_BLOCK_TELEMETRY, true)));

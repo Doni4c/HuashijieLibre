@@ -8,7 +8,7 @@ import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
-import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
+import app.morphe.patches.huashijie.core.ensureBrushPkgManagerGetListHooked
 import app.morphe.patches.huashijie.core.formatInvokeStaticSingle
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
@@ -17,8 +17,6 @@ import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
-import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
-import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
 private const val TOGGLE_KEY = "pure_studio_instant_launch"
@@ -31,15 +29,6 @@ private val flashOnCreateFingerprint = Fingerprint(
     parameters = listOf("Landroid/os/Bundle;"),
     custom = { _, classDef ->
         classDef.type == "Lnet/huanci/hsjpro/activities/FlashActivity;"
-    },
-)
-
-private val baseOnCreateFingerprint = Fingerprint(
-    name = "onCreate",
-    returnType = "V",
-    parameters = listOf("Landroid/os/Bundle;"),
-    custom = { _, classDef ->
-        classDef.type == "Lnet/huanci/hsjpro/activities/BaseActivity;"
     },
 )
 
@@ -59,7 +48,6 @@ val instantLaunchPatch = bytecodePatch(
         val classes = allClasses()
         val flashClass = MultiVersionResolvers.resolveFlashActivityClass(classes)
         val splashJumpMethod = MultiVersionResolvers.resolveFlashSplashJump(flashClass)
-        val watchdogField = MultiVersionResolvers.resolveDrawApplicationWatchdogField(classes)
 
         val flashOnCreate = flashOnCreateFingerprint.method
         val onCreateInsns = flashOnCreate.implementation!!.instructions
@@ -97,31 +85,6 @@ val instantLaunchPatch = bytecodePatch(
             ExternalLabel("cond_skip_splash_ad", targetOnCreate.getInstruction(shiftedCallIdx + 1)),
         )
 
-        val baseOnCreate = baseOnCreateFingerprint.method
-        val baseInsns = baseOnCreate.implementation!!.instructions
-        val watchdogIdx = baseInsns.indexOfFirst { inst ->
-            inst.opcode == Opcode.IGET_BOOLEAN &&
-                (inst as? ReferenceInstruction)?.reference
-                    .let { it as? FieldReference }
-                    ?.let {
-                        it.definingClass == watchdogField.definingClass &&
-                            it.name == watchdogField.name
-                    } == true
-        }
-        check(watchdogIdx >= 0) { "DrawApplication watchdog field check not found in BaseActivity.onCreate" }
-        val flagReg = (baseInsns[watchdogIdx] as TwoRegisterInstruction).registerA
-        val (targetBase, baseScratch, insertBaseIdx) = resolveLowRegisterAt(
-            method = baseOnCreate,
-            insertIndex = watchdogIdx + 1,
-            flagReg,
-        )
-        targetBase.addInstructionsPreservingLabels(
-            insertBaseIdx,
-            """
-            invoke-static {}, ${STARTUP_LIFECYCLE_CONTROLLER}->isInstantLaunchActive()Z
-            move-result v$baseScratch
-            or-int/2addr v$flagReg, v$baseScratch
-            """.trimIndent(),
-        )
+        ensureBrushPkgManagerGetListHooked()
     }
 }

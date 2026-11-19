@@ -1,6 +1,8 @@
 package app.morphe.extension.huashijie;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -9,10 +11,12 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
+import android.os.Environment;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -21,6 +25,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.CompoundButton;
 import android.widget.HorizontalScrollView;
@@ -30,6 +35,7 @@ import android.widget.PopupWindow;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.io.File;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -69,6 +75,9 @@ public final class WorkspaceUiController {
     private static final int TAG_SCROLL_CONTENT_FITS = 0x7e09863c;
     private static final int TAG_LAST_AUDIT_HASH = 0x7e09863d;
     private static final int TAG_TOOLBAR_POLISHED = 0x7e09863e;
+    private static final int TAG_EXIT_ORIG_PAD_TOP = 0x7e09863f;
+    private static final int TAG_ORIG_TOOL_GRID_W = 0x7e098641;
+    private static final int TAG_ORIG_TOOL_GRID_RV_PAD_R = 0x7e098650;
 
     private static final Pattern PATTERN_DYNAMIC_NUMERIC =
             Pattern.compile("^[+-]?\\d+(?:[.,]\\d+)?\\s*(?:%|px|dp|sp|fps|pt|mm|cm|x|X)?$");
@@ -976,6 +985,100 @@ public final class WorkspaceUiController {
         return LibreConfig.isFeatureActive(LibreConfig.KEY_HIDE_BRUSH_LIBRARY_SHOP);
     }
 
+    public static String resolveActiveDraftDirectory(Context ctx) {
+        try {
+            Class<?> clz = Class.forName("net.huanci.hsjpro.utils.o00O000o");
+            Method m = LibreResourceResolver.findMethod(
+                    clz, "Oooo0oo", String.class, true, boolean.class, String.class);
+            if (m != null) {
+                Object res = m.invoke(null, true, "");
+                if (res instanceof String && !((String) res).trim().isEmpty()) {
+                    String trimmed = ((String) res).trim();
+                    while (trimmed.endsWith("/") && trimmed.length() > 1) {
+                        trimmed = trimmed.substring(0, trimmed.length() - 1);
+                    }
+                    if (!trimmed.endsWith("/Draft")) {
+                        File draftSub = new File(trimmed, "Draft");
+                        if (draftSub.exists()
+                                || trimmed.endsWith("/HuashijiePro")
+                                || trimmed.endsWith("/files")) {
+                            trimmed = draftSub.getAbsolutePath();
+                        }
+                    }
+                    if (!trimmed.endsWith("/")) {
+                        trimmed = trimmed + "/";
+                    }
+                    return trimmed;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return new File(Environment.getExternalStorageDirectory(), "HuashijiePro/Draft").getAbsolutePath() + "/";
+    }
+
+    public static String resolveActiveExportDraftDirectory(Context ctx) {
+        try {
+            Class<?> clz = Class.forName("net.huanci.hsjpro.utils.o00O000o");
+            Method m = LibreResourceResolver.findMethod(clz, "Oooo00o", String.class, true);
+            if (m != null) {
+                Object res = m.invoke(null);
+                if (res instanceof String && !((String) res).trim().isEmpty()) {
+                    String trimmed = ((String) res).trim();
+                    if (!trimmed.endsWith("/")) {
+                        trimmed = trimmed + "/";
+                    }
+                    return trimmed;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return "/storage/emulated/0/HuashijiePro/exportDrafts/";
+    }
+
+    private static String formatShortDraftPath(String fullPath) {
+        if (fullPath == null || fullPath.trim().isEmpty()) {
+            return "/HuashijiePro/Draft/";
+        }
+        String p = fullPath.trim();
+        if (!p.endsWith("/")) {
+            p = p + "/";
+        }
+        if (p.contains("/Android/data/")) {
+            return "Android/data/.../Draft/";
+        }
+        if (p.contains("/HuashijiePro/Draft")) {
+            return "/HuashijiePro/Draft/";
+        }
+        String[] parts = p.split("/");
+        ArrayList<String> nonEmpty = new ArrayList<>();
+        for (String part : parts) {
+            if (part != null && !part.isEmpty()) {
+                nonEmpty.add(part);
+            }
+        }
+        if (nonEmpty.size() >= 2) {
+            return "/" + nonEmpty.get(nonEmpty.size() - 2) + "/" + nonEmpty.get(nonEmpty.size() - 1) + "/";
+        }
+        return p;
+    }
+
+    private static String extractLabelPrefix(String text) {
+        if (text == null || text.isEmpty()) return "";
+        int halfIdx = text.indexOf(':');
+        int fullIdx = text.indexOf('\uff1a');
+        int idx = -1;
+        if (halfIdx >= 0 && fullIdx >= 0) {
+            idx = Math.min(halfIdx, fullIdx);
+        } else if (halfIdx >= 0) {
+            idx = halfIdx;
+        } else if (fullIdx >= 0) {
+            idx = fullIdx;
+        }
+        if (idx >= 0) {
+            char colon = text.charAt(idx);
+            return text.substring(0, idx + 1) + (colon == '\uff1a' ? "" : " ");
+        }
+        return text + ": ";
+    }
+
     /**
      * Hook called at the end of DraftStorageSettingActivity.initView()V.
      * Renders native dark matched storage paths and prevents text clipping next to switches.
@@ -1006,14 +1109,21 @@ public final class WorkspaceUiController {
                 tvHeader.setTextSize(14.0f);
                 tvHeader.setTypeface(null, android.graphics.Typeface.BOLD);
 
+                String draftPrefix = extractLabelPrefix(TranslationEngine.get(
+                        "libre_storage_box_draft", "\u672c\u5730\u8349\u7a3f\u76ee\u5f55\uff1a/storage/emulated/0/HuashijiePro/Draft/"));
+                String exportPrefix = extractLabelPrefix(TranslationEngine.get(
+                        "libre_storage_box_export", "\u5de5\u7a0b\u5bfc\u51fa\u76ee\u5f55\uff1a/storage/emulated/0/HuashijiePro/exportDrafts/"));
+                String realDraftDir = resolveActiveDraftDirectory(activity);
+                String realExportDir = resolveActiveExportDraftDirectory(activity);
+
                 TextView tvDraft = new TextView(activity);
-                tvDraft.setText(TranslationEngine.get("libre_storage_box_draft", "\u672c\u5730\u8349\u7a3f\u76ee\u5f55\uff1a/storage/emulated/0/HuashijiePro/Draft/"));
+                tvDraft.setText(draftPrefix + realDraftDir);
                 tvDraft.setTextColor(isDark ? Color.parseColor("#A0A0A0") : Color.parseColor("#555555"));
                 tvDraft.setTextSize(12.0f);
                 tvDraft.setPadding(0, Math.round(6 * density), 0, 0);
 
                 TextView tvExport = new TextView(activity);
-                tvExport.setText(TranslationEngine.get("libre_storage_box_export", "\u5de5\u7a0b\u5bfc\u51fa\u76ee\u5f55\uff1a/storage/emulated/0/HuashijiePro/exportDrafts/"));
+                tvExport.setText(exportPrefix + realExportDir);
                 tvExport.setTextColor(isDark ? Color.parseColor("#A0A0A0") : Color.parseColor("#555555"));
                 tvExport.setTextSize(12.0f);
                 tvExport.setPadding(0, Math.round(3 * density), 0, 0);
@@ -1132,7 +1242,9 @@ public final class WorkspaceUiController {
                         View cloudContainer = findView(dialogView, "cloud_sync_switch_container", 0x7f09037a);
                         if (cloudContainer != null && cloudContainer.getParent() instanceof ViewGroup) {
                             headerRow = (ViewGroup) cloudContainer.getParent();
-                        } else if (dialogView instanceof ViewGroup) {
+                        } else if (dialogView instanceof ViewGroup
+                                && (findView(dialogView, "cloud_sync_switch", 0x7f090379) != null
+                                || findView(dialogView, "tv_cloud_sync_message", 0x7f090dfd) != null)) {
                             ViewGroup vg = (ViewGroup) dialogView;
                             if (vg.getChildCount() > 0 && vg.getChildAt(0) instanceof ViewGroup) {
                                 headerRow = (ViewGroup) vg.getChildAt(0);
@@ -1146,9 +1258,50 @@ public final class WorkspaceUiController {
                                 headerRow.setLayoutParams(lp);
                             }
                             float density = headerRow.getResources().getDisplayMetrics().density;
-                            int minH = Math.round(56 * density);
-                            if (headerRow.getMinimumHeight() < minH) {
-                                headerRow.setMinimumHeight(minH);
+                            if (hideCloud) {
+                                if (headerRow.getMinimumHeight() != 0) {
+                                    headerRow.setMinimumHeight(0);
+                                }
+                                Object origPadObj = headerRow.getTag(TAG_EXIT_ORIG_PAD_TOP);
+                                int origPadTop = (origPadObj instanceof Integer)
+                                        ? (Integer) origPadObj
+                                        : headerRow.getPaddingTop();
+                                if (origPadObj == null) {
+                                    headerRow.setTag(TAG_EXIT_ORIG_PAD_TOP, origPadTop);
+                                }
+                                int balancedTop = origPadTop;
+                                if (headerRow.getPaddingTop() != balancedTop || headerRow.getPaddingBottom() != 0) {
+                                    headerRow.setPadding(
+                                            headerRow.getPaddingLeft(),
+                                            balancedTop,
+                                            headerRow.getPaddingRight(),
+                                            0);
+                                }
+                                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                                    ViewGroup.MarginLayoutParams hMlp = (ViewGroup.MarginLayoutParams) lp;
+                                    if (hMlp.bottomMargin != 0) {
+                                        hMlp.bottomMargin = 0;
+                                        headerRow.setLayoutParams(hMlp);
+                                    }
+                                }
+                                if (headerRow.getParent() instanceof ViewGroup) {
+                                    ViewGroup dialogContent = (ViewGroup) headerRow.getParent();
+                                    if (dialogContent.getMinimumHeight() != 0) {
+                                        dialogContent.setMinimumHeight(0);
+                                    }
+                                    if (dialogContent.getPaddingBottom() != 0) {
+                                        dialogContent.setPadding(
+                                                dialogContent.getPaddingLeft(),
+                                                dialogContent.getPaddingTop(),
+                                                dialogContent.getPaddingRight(),
+                                                0);
+                                    }
+                                }
+                            } else {
+                                int minH = Math.round(56 * density);
+                                if (headerRow.getMinimumHeight() < minH) {
+                                    headerRow.setMinimumHeight(minH);
+                                }
                             }
                             headerRow.setClipChildren(false);
                             headerRow.setClipToPadding(false);
@@ -1158,21 +1311,46 @@ public final class WorkspaceUiController {
                             int exitTitleStrId = LibreResourceResolver.resolveStringId(
                                     dialogView.getContext(), "exit_canvas_title", 0x7f1102e6);
 
+                            TextView foundTitle = null;
                             for (int i = 0; i < headerRow.getChildCount(); i++) {
                                 View child = headerRow.getChildAt(i);
                                 if (child instanceof TextView
                                         && child.getId() != msgId
                                         && child.getId() != switchContId) {
                                     TextView tvTitle = (TextView) child;
+                                    foundTitle = tvTitle;
                                     ViewGroup.LayoutParams tvLp = tvTitle.getLayoutParams();
                                     if (tvLp instanceof LinearLayout.LayoutParams) {
                                         LinearLayout.LayoutParams llp = (LinearLayout.LayoutParams) tvLp;
+                                        boolean changed = false;
                                         if (llp.width != ViewGroup.LayoutParams.MATCH_PARENT && llp.weight != 1.0f) {
                                             llp.width = 0;
                                             llp.weight = 1.0f;
                                             llp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                                            changed = true;
+                                        }
+                                        if (hideCloud && (llp.topMargin != 0 || llp.bottomMargin != 0)) {
+                                            llp.topMargin = 0;
+                                            llp.bottomMargin = 0;
+                                            changed = true;
+                                        }
+                                        if (changed) {
                                             tvTitle.setLayoutParams(llp);
                                         }
+                                    } else if (hideCloud && tvLp instanceof ViewGroup.MarginLayoutParams) {
+                                        ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) tvLp;
+                                        if (mlp.topMargin != 0 || mlp.bottomMargin != 0) {
+                                            mlp.topMargin = 0;
+                                            mlp.bottomMargin = 0;
+                                            tvTitle.setLayoutParams(mlp);
+                                        }
+                                    }
+                                    if (hideCloud && (tvTitle.getPaddingTop() != 0 || tvTitle.getPaddingBottom() != 0)) {
+                                        tvTitle.setPadding(
+                                                tvTitle.getPaddingLeft(),
+                                                0,
+                                                tvTitle.getPaddingRight(),
+                                                0);
                                     }
                                     TranslationEngine.ensureSafeVietnameseFontPadding(tvTitle);
                                     if (Math.abs(tvTitle.getLineSpacingMultiplier() - 1.15f) > 0.01f) {
@@ -1196,6 +1374,9 @@ public final class WorkspaceUiController {
                                     break;
                                 }
                             }
+                            if (hideCloud && foundTitle != null) {
+                                collapseExitTitleContainersBottom(dialogView, foundTitle, headerRow);
+                            }
                         }
 
                         if (dialogView instanceof ViewGroup) {
@@ -1210,16 +1391,16 @@ public final class WorkspaceUiController {
             if (dialogView.getTag(TAG_EXIT_DIALOG_HOOKED) == null) {
                 dialogView.setTag(TAG_EXIT_DIALOG_HOOKED, Boolean.TRUE);
                 final ViewTreeObserver.OnPreDrawListener listener = new ViewTreeObserver.OnPreDrawListener() {
-                    private boolean mFrame0Applied = false;
+                    private int mAdjustPasses = 0;
                     @Override
                     public boolean onPreDraw() {
-                        if (!mFrame0Applied) {
-                            mFrame0Applied = true;
-                            enforceExitDialog.run();
-                            try {
-                                dialogView.getViewTreeObserver().removeOnPreDrawListener(this);
-                            } catch (Throwable ignored) {}
+                        if (mAdjustPasses < 2 && hideCloud && balanceExitDialogVerticalSpacingOnce(dialogView)) {
+                            mAdjustPasses++;
+                            return false;
                         }
+                        try {
+                            dialogView.getViewTreeObserver().removeOnPreDrawListener(this);
+                        } catch (Throwable ignored) {}
                         return true;
                     }
                 };
@@ -1228,14 +1409,189 @@ public final class WorkspaceUiController {
 
             TranslationEngine.translateViewHierarchy(dialogView);
 
-            try {
-                Class<?> utilClass = Class.forName("net.huanci.hsjpro.utils.oo0oO0");
-                java.lang.reflect.Method setMethod = utilClass.getMethod("o000", String.class, boolean.class);
-                setMethod.invoke(null, "quit_draft_cloud_sync_hint", true);
-            } catch (Throwable ignored) {}
+            if (hideCloud) {
+                try {
+                    Class<?> utilClass = Class.forName("net.huanci.hsjpro.utils.oo0oO0");
+                    java.lang.reflect.Method setMethod = utilClass.getMethod("o000", String.class, boolean.class);
+                    setMethod.invoke(null, "quit_draft_cloud_sync_hint", true);
+                } catch (Throwable ignored) {}
+            }
         } catch (Throwable t) {
             t.printStackTrace();
         }
+    }
+
+    private static void collapseExitTitleContainersBottom(View dialogView, View tvTitle, ViewGroup headerRow) {
+        if (dialogView == null || tvTitle == null) return;
+        int msgId = id(dialogView, "tv_cloud_sync_message", 0x7f090dfd);
+        int switchContId = id(dialogView, "cloud_sync_switch_container", 0x7f09037a);
+        int switchId = id(dialogView, "cloud_sync_switch", 0x7f090379);
+        ViewParent p = tvTitle.getParent();
+        while (p instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) p;
+            if (vg == dialogView) break;
+            if (vg.getMinimumHeight() != 0) {
+                vg.setMinimumHeight(0);
+            }
+            if (vg.getPaddingBottom() != 0) {
+                vg.setPadding(vg.getPaddingLeft(), vg.getPaddingTop(), vg.getPaddingRight(), 0);
+            }
+            ViewGroup.LayoutParams lp = vg.getLayoutParams();
+            if (lp != null) {
+                boolean lpChanged = false;
+                if (lp.height != ViewGroup.LayoutParams.WRAP_CONTENT && lp.height > 0) {
+                    lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    lpChanged = true;
+                }
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.bottomMargin != 0) {
+                        mlp.bottomMargin = 0;
+                        lpChanged = true;
+                    }
+                }
+                if (lpChanged) {
+                    vg.setLayoutParams(lp);
+                }
+            }
+            if (vg == headerRow) {
+                for (int i = 0; i < vg.getChildCount(); i++) {
+                    View ch = vg.getChildAt(i);
+                    if (ch != null && ch != tvTitle && (ch.getId() == msgId || ch.getId() == switchContId || ch.getId() == switchId)) {
+                        if (ch.getVisibility() != View.GONE) ch.setVisibility(View.GONE);
+                    }
+                }
+            }
+            p = vg.getParent();
+        }
+    }
+
+    private static View findExitDialogTitleView(View root) {
+        if (root == null) return null;
+        int msgId = id(root, "tv_cloud_sync_message", 0x7f090dfd);
+        int switchContId = id(root, "cloud_sync_switch_container", 0x7f09037a);
+        View msgLayout = findView(root, "msg_layout", 0);
+        View search = msgLayout != null ? msgLayout : findView(root, "dialog_content", 0);
+        if (search == null) search = root;
+        if (search instanceof ViewGroup) {
+            java.util.ArrayDeque<View> q = new java.util.ArrayDeque<>();
+            q.add(search);
+            while (!q.isEmpty()) {
+                View v = q.poll();
+                if (v instanceof TextView && v.getVisibility() == View.VISIBLE
+                        && v.getId() != msgId && v.getId() != switchContId) {
+                    return v;
+                }
+                if (v instanceof ViewGroup && v.getId() != switchContId) {
+                    ViewGroup vg = (ViewGroup) v;
+                    for (int i = 0; i < vg.getChildCount(); i++) {
+                        View ch = vg.getChildAt(i);
+                        if (ch != null) q.add(ch);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static int getYRelativeTo(View target, View ancestor) {
+        int y = 0;
+        View cur = target;
+        while (cur != null && cur != ancestor) {
+            y += cur.getTop();
+            ViewParent p = cur.getParent();
+            if (!(p instanceof View)) break;
+            cur = (View) p;
+        }
+        return y;
+    }
+
+    private static boolean balanceExitDialogVerticalSpacingOnce(View dialogView) {
+        if (dialogView == null) return false;
+        View searchRoot = dialogView;
+        View btnLayout = findView(searchRoot, "btn_layout", 0);
+        while (btnLayout == null && searchRoot.getParent() instanceof ViewGroup) {
+            searchRoot = (View) searchRoot.getParent();
+            btnLayout = findView(searchRoot, "btn_layout", 0);
+        }
+        if (btnLayout == null || btnLayout.getHeight() <= 0) return false;
+
+        View cardRoot = searchRoot;
+        ViewParent walk = cardRoot.getParent();
+        for (int hops = 0; hops < 6 && walk instanceof ViewGroup; hops++) {
+            ViewGroup parent = (ViewGroup) walk;
+            cardRoot = parent;
+            if (parent.getId() == android.R.id.content) {
+                break;
+            }
+            walk = parent.getParent();
+        }
+
+        View tvTitle = findExitDialogTitleView(cardRoot);
+        if (tvTitle == null || tvTitle.getHeight() <= 0 || cardRoot.getHeight() <= 0) return false;
+
+        int cardH = cardRoot.getHeight();
+        int titleTop = getYRelativeTo(tvTitle, cardRoot);
+        int titleBot = titleTop + tvTitle.getHeight();
+        int btnTop = getYRelativeTo(btnLayout, cardRoot);
+        int btnBot = btnTop + btnLayout.getHeight();
+
+        int topGap = titleTop;
+        int midGap = btnTop - titleBot;
+        int botGap = cardH - btnBot;
+        if (botGap <= 0) return false;
+
+        int targetGap = botGap;
+        boolean changed = false;
+
+        int deltaTop = targetGap - topGap;
+        if (Math.abs(deltaTop) > 1) {
+            View msgLayout = findView(cardRoot, "msg_layout", 0);
+            View dialogContent = findView(cardRoot, "dialog_content", 0);
+            View padTarget = msgLayout != null ? msgLayout : (dialogContent != null ? dialogContent : tvTitle);
+            int curPadTop = padTarget.getPaddingTop();
+            int newPadTop = curPadTop + deltaTop;
+            if (newPadTop >= 0) {
+                padTarget.setPadding(padTarget.getPaddingLeft(), newPadTop, padTarget.getPaddingRight(), padTarget.getPaddingBottom());
+                changed = true;
+            } else if (curPadTop > 0) {
+                padTarget.setPadding(padTarget.getPaddingLeft(), 0, padTarget.getPaddingRight(), padTarget.getPaddingBottom());
+                changed = true;
+            }
+        }
+
+        int deltaMid = targetGap - midGap;
+        if (Math.abs(deltaMid) > 1) {
+            int remainingMid = deltaMid;
+            ViewGroup.LayoutParams btnLp = btnLayout.getLayoutParams();
+            if (btnLp instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) btnLp;
+                int newMarginTop = Math.max(0, mlp.topMargin + remainingMid);
+                remainingMid -= (newMarginTop - mlp.topMargin);
+                if (newMarginTop != mlp.topMargin) {
+                    mlp.topMargin = newMarginTop;
+                    btnLayout.setLayoutParams(mlp);
+                    changed = true;
+                }
+            }
+            if (remainingMid < -1) {
+                View dialogContent = findView(cardRoot, "dialog_content", 0);
+                if (dialogContent != null && dialogContent.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams dMlp = (ViewGroup.MarginLayoutParams) dialogContent.getLayoutParams();
+                    int newBotMargin = Math.max(0, dMlp.bottomMargin + remainingMid);
+                    if (newBotMargin != dMlp.bottomMargin) {
+                        dMlp.bottomMargin = newBotMargin;
+                        dialogContent.setLayoutParams(dMlp);
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if (changed) {
+            cardRoot.requestLayout();
+        }
+        return changed;
     }
 
     private static boolean isDynamicNumericReadout(TextView tv) {
@@ -2950,13 +3306,26 @@ public final class WorkspaceUiController {
         } catch (Throwable ignored) {}
     }
 
+    private static ViewGroup resolveDraftInfoContainer(View popupView) {
+        if (popupView == null) return null;
+        ViewGroup draftInfo = (ViewGroup) findView(popupView, "ll_draft_info", 0x7f090828);
+        if (draftInfo != null) {
+            return draftInfo;
+        }
+        View anchor = findView(popupView, "create_time", 0x7f090407);
+        if (anchor == null) {
+            anchor = findView(popupView, "canvas_size", 0x7f090320);
+        }
+        if (anchor != null && anchor.getParent() != null && anchor.getParent().getParent() instanceof LinearLayout) {
+            return (ViewGroup) anchor.getParent().getParent();
+        }
+        return null;
+    }
+
     public static void appendCanvasHsjPathRow(View popupView) {
         if (popupView == null || !isCanvasHsjPathRowActive()) return;
         try {
-            ViewGroup draftInfo = (ViewGroup) findView(popupView, "ll_draft_info", 0x7f090828);
-            if (draftInfo == null) {
-                draftInfo = (ViewGroup) findView(popupView, "layout_bottom", 0x7f09075d);
-            }
+            ViewGroup draftInfo = resolveDraftInfoContainer(popupView);
             if (draftInfo == null || draftInfo.findViewWithTag("libre_canvas_hsj_path") != null) {
                 return;
             }
@@ -2983,7 +3352,8 @@ public final class WorkspaceUiController {
                     View existingRow = draftInfo.getChildAt(c);
                     existingRow.setLayoutParams(new LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
-                            rowHeightPx));
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
+                    existingRow.setMinimumHeight(rowHeightPx);
                     existingRow.setPadding(
                             existingRow.getPaddingLeft(),
                             0,
@@ -3004,17 +3374,20 @@ public final class WorkspaceUiController {
                 }
             }
 
+            final String realDraftDir = resolveActiveDraftDirectory(ctx);
+
             RelativeLayout row = new RelativeLayout(ctx);
             row.setTag("libre_canvas_hsj_path");
             row.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    rowHeightPx));
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+            row.setMinimumHeight(rowHeightPx);
             row.setPadding(leftPad, topPad, rightPad, bottomPad);
 
             TextView tvVal = new TextView(ctx);
             int valId = SYNTHETIC_HSJ_PATH_VAL_ID;
             tvVal.setId(valId);
-            tvVal.setText("/HuashijiePro/Draft/");
+            tvVal.setText(formatShortDraftPath(realDraftDir));
             tvVal.setTextColor(valueColor);
             tvVal.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx);
             tvVal.setSingleLine(true);
@@ -3050,10 +3423,18 @@ public final class WorkspaceUiController {
 
             row.addView(tvVal);
             row.addView(tvLbl);
-            row.setOnClickListener(v -> android.widget.Toast.makeText(
-                    ctx,
-                    "/storage/emulated/0/HuashijiePro/Draft/",
-                    android.widget.Toast.LENGTH_LONG).show());
+            row.setOnClickListener(v -> {
+                try {
+                    ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("hsj_draft_path", realDraftDir));
+                    }
+                } catch (Throwable ignored) {}
+                android.widget.Toast.makeText(
+                        ctx,
+                        realDraftDir,
+                        android.widget.Toast.LENGTH_LONG).show();
+            });
             draftInfo.addView(row);
         } catch (Throwable ignored) {}
     }
@@ -3063,10 +3444,7 @@ public final class WorkspaceUiController {
         try {
             appendCanvasHsjPathRow(popupView);
 
-            ViewGroup draftInfo = (ViewGroup) findView(popupView, "ll_draft_info", 0x7f090828);
-            if (draftInfo == null) {
-                draftInfo = (ViewGroup) findView(popupView, "layout_bottom", 0x7f09075d);
-            }
+            ViewGroup draftInfo = resolveDraftInfoContainer(popupView);
             if (draftInfo != null && (isCanvasPopupPolishActive() || isCanvasHsjPathRowActive())) {
                 float density = draftInfo.getResources().getDisplayMetrics().density;
                 int rowCount = draftInfo.getChildCount();
@@ -3718,7 +4096,11 @@ public final class WorkspaceUiController {
                     ? GlobalCompatibilityController.isHideTimelapseExportSocialActive()
                     : GlobalCompatibilityController.isHideExportSocialIconsActive();
             if (hideSocial) {
+                boolean keepShareEntry = LibreConfig.isFeatureActive(LibreConfig.KEY_SYSTEM_SHARE);
                 for (int i = 0; i < EXPORT_SOCIAL_NAMES.length; i++) {
+                    if ("share_bgview".equals(EXPORT_SOCIAL_NAMES[i]) && keepShareEntry) {
+                        continue;
+                    }
                     View target = findView(dialogView, EXPORT_SOCIAL_NAMES[i], EXPORT_SOCIAL_FALLBACKS[i]);
                     if (target != null) {
                         hideViewCleanly(target);
@@ -4388,7 +4770,9 @@ public final class WorkspaceUiController {
     }
 
     /**
-     * Expands the 2-column Paint left tool grid popup so all 9 rows fit cleanly without slicing row 9.
+     * Responsively lays out the Paint left tool grid popup for both portrait (2 columns)
+     * and landscape/tablet (3 or 4 columns), capping height within visible safe bounds
+     * and enabling smooth vertical scrolling when content exceeds safe viewport height.
      */
     public static void expandLeftToolGridIfApplicable(View root) {
         if (root == null || !isCanvasPopupPolishActive()) return;
@@ -4404,8 +4788,136 @@ public final class WorkspaceUiController {
             int childCount = rvGroup.getChildCount();
             if (childCount == 0) return;
 
-            float density = root.getResources().getDisplayMetrics().density;
-            int displayH = root.getResources().getDisplayMetrics().heightPixels;
+            DisplayMetrics dm = root.getResources().getDisplayMetrics();
+            float density = dm.density;
+            int displayW = dm.widthPixels;
+            int displayH = dm.heightPixels;
+
+            Rect visibleFrame = new Rect();
+            try {
+                root.getWindowVisibleDisplayFrame(visibleFrame);
+            } catch (Throwable ignored) {}
+            if (visibleFrame.width() <= 0 || visibleFrame.height() <= 0) {
+                visibleFrame.set(0, 0, displayW, displayH);
+            }
+
+            int insetTop = 0;
+            int insetBottom = 0;
+            int insetLeft = 0;
+            int insetRight = 0;
+            if (Build.VERSION.SDK_INT >= 23) {
+                try {
+                    WindowInsets wi = root.getRootWindowInsets();
+                    if (wi != null) {
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            android.graphics.Insets insets = wi.getInsets(
+                                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                            insetTop = insets.top;
+                            insetBottom = insets.bottom;
+                            insetLeft = insets.left;
+                            insetRight = insets.right;
+                        } else {
+                            insetTop = wi.getSystemWindowInsetTop();
+                            insetBottom = wi.getSystemWindowInsetBottom();
+                            insetLeft = wi.getSystemWindowInsetLeft();
+                            insetRight = wi.getSystemWindowInsetRight();
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            int safeW = Math.min(visibleFrame.width(), Math.max(1, displayW - insetLeft - insetRight));
+            int safeH = Math.min(visibleFrame.height(), Math.max(1, displayH - insetTop - insetBottom));
+            boolean isLandscape = safeW > safeH;
+            int targetSpan = isLandscape
+                    ? (safeW >= Math.round(900 * density) ? 4 : 3)
+                    : 2;
+
+            PopupWindow pw = getBoundPopupWindow(root);
+            int curW = (pw != null && pw.getWidth() > 0) ? pw.getWidth() : root.getWidth();
+            Object origWObj = root.getTag(TAG_ORIG_TOOL_GRID_W);
+            int origTwoColW;
+            if (origWObj instanceof Integer && (Integer) origWObj > 0) {
+                origTwoColW = (Integer) origWObj;
+            } else {
+                origTwoColW = curW > 0 ? curW : Math.round(150 * density);
+                if (curW > 0) {
+                    root.setTag(TAG_ORIG_TOOL_GRID_W, origTwoColW);
+                }
+            }
+
+            View bubbleView = findView(root, "bubbleView", 0x7f0902eb);
+            int curSpan = 2;
+            Object layoutMgr = null;
+            Method setSpanMethod = null;
+            try {
+                Method getLm = rv.getClass().getMethod("getLayoutManager");
+                layoutMgr = getLm.invoke(rv);
+                if (layoutMgr != null) {
+                    Method getSpan = layoutMgr.getClass().getMethod("getSpanCount");
+                    Object spanObj = getSpan.invoke(layoutMgr);
+                    if (spanObj instanceof Integer && (Integer) spanObj > 0) {
+                        curSpan = (Integer) spanObj;
+                    }
+                    setSpanMethod = layoutMgr.getClass().getMethod("setSpanCount", int.class);
+                }
+            } catch (Throwable ignored) {}
+
+            Object origRvPadObj = rv.getTag(TAG_ORIG_TOOL_GRID_RV_PAD_R);
+            int origRvPadR;
+            if (origRvPadObj instanceof Integer) {
+                origRvPadR = (Integer) origRvPadObj;
+            } else {
+                origRvPadR = rv.getPaddingRight();
+                rv.setTag(TAG_ORIG_TOOL_GRID_RV_PAD_R, origRvPadR);
+            }
+            int extraRightPad = (targetSpan >= 3 && origRvPadR < Math.round(4 * density))
+                    ? Math.round(6 * density)
+                    : 0;
+            int targetRvPadR = origRvPadR + extraRightPad;
+            if (rv.getPaddingRight() != targetRvPadR) {
+                rv.setPadding(rv.getPaddingLeft(), rv.getPaddingTop(), targetRvPadR, rv.getPaddingBottom());
+            }
+
+            int chromeW = Math.max(Math.round(28 * density),
+                    origTwoColW - (curSpan == 2 && rv.getWidth() > 0 ? rv.getWidth() : Math.round(120 * density)));
+            int colW = Math.max(Math.round(52 * density), (origTwoColW - chromeW) / 2);
+            int desiredPopupW = (targetSpan == 2)
+                    ? origTwoColW
+                    : Math.min(Math.round(safeW * 0.78f), chromeW + colW * targetSpan + extraRightPad);
+
+            if (setSpanMethod != null && layoutMgr != null && curSpan != targetSpan) {
+                try {
+                    setSpanMethod.invoke(layoutMgr, targetSpan);
+                    rv.requestLayout();
+                } catch (Throwable ignored) {}
+            } else if (setSpanMethod == null) {
+                targetSpan = curSpan;
+                desiredPopupW = origTwoColW;
+            }
+
+            if (bubbleView != null && bubbleView.getLayoutParams() != null
+                    && bubbleView.getLayoutParams().width > 0 && curW > 0 && desiredPopupW > 0) {
+                ViewGroup.LayoutParams bLpW = bubbleView.getLayoutParams();
+                int rootHPad = root.getPaddingLeft() + root.getPaddingRight();
+                if (bLpW instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams bMlp = (ViewGroup.MarginLayoutParams) bLpW;
+                    rootHPad += bMlp.leftMargin + bMlp.rightMargin;
+                }
+                int targetBubbleW = Math.max(colW, desiredPopupW - rootHPad);
+                if (bLpW.width != targetBubbleW) {
+                    bLpW.width = targetBubbleW;
+                    bubbleView.setLayoutParams(bLpW);
+                }
+            }
+            if (rv.getLayoutParams() != null && rv.getLayoutParams().width > 0 && desiredPopupW > 0) {
+                ViewGroup.LayoutParams rvLpW = rv.getLayoutParams();
+                int targetRvW = Math.max(colW, desiredPopupW - chromeW);
+                if (rvLpW.width != targetRvW) {
+                    rvLpW.width = targetRvW;
+                    rv.setLayoutParams(rvLpW);
+                }
+            }
 
             int rowH = 0;
             int sampleMax = Math.min(childCount, 4);
@@ -4421,10 +4933,10 @@ public final class WorkspaceUiController {
 
             int itemCount = childCount;
             try {
-                java.lang.reflect.Method getAdapter = rv.getClass().getMethod("getAdapter");
+                Method getAdapter = rv.getClass().getMethod("getAdapter");
                 Object adapter = getAdapter.invoke(rv);
                 if (adapter != null) {
-                    java.lang.reflect.Method getItemCount = adapter.getClass().getMethod("getItemCount");
+                    Method getItemCount = adapter.getClass().getMethod("getItemCount");
                     Object cntObj = getItemCount.invoke(adapter);
                     if (cntObj instanceof Integer && (Integer) cntObj > 0) {
                         itemCount = (Integer) cntObj;
@@ -4435,7 +4947,7 @@ public final class WorkspaceUiController {
                 itemCount = childCount;
             }
 
-            int rows = (itemCount + 1) / 2;
+            int rows = (itemCount + targetSpan - 1) / targetSpan;
             int desiredRvH = rows * rowH + rv.getPaddingTop() + rv.getPaddingBottom() + Math.round(2 * density);
 
             int footerH = settingIv.getHeight() > 0 ? settingIv.getHeight() : Math.round(37 * density);
@@ -4444,7 +4956,6 @@ public final class WorkspaceUiController {
                 footerH += Math.max(1, lineView.getHeight());
             }
 
-            View bubbleView = findView(root, "bubbleView", 0x7f0902eb);
             int chromeH = root.getPaddingTop() + root.getPaddingBottom();
             if (bubbleView != null) {
                 chromeH += bubbleView.getPaddingTop() + bubbleView.getPaddingBottom();
@@ -4458,15 +4969,18 @@ public final class WorkspaceUiController {
                 chromeH += rMlp.topMargin + rMlp.bottomMargin;
             }
 
-            int maxPopupH = Math.round(displayH * 0.88f);
+            int maxPopupH = Math.max(footerH + chromeH + rowH, safeH - Math.round(28 * density));
             int desiredPopupH = Math.min(maxPopupH, desiredRvH + footerH + chromeH);
-            int cappedRvH = Math.max(rv.getHeight(), desiredPopupH - footerH - chromeH);
+            int cappedRvH = Math.max(rowH, desiredPopupH - footerH - chromeH);
+            boolean needsScroll = desiredRvH > cappedRvH;
 
-            PopupWindow pw = getBoundPopupWindow(root);
-            int curW = (pw != null && pw.getWidth() > 0) ? pw.getWidth() : root.getWidth();
-            String sig = itemCount + "|" + cappedRvH + "|" + desiredPopupH;
+            rv.setVerticalScrollBarEnabled(needsScroll);
+            rv.setOverScrollMode(needsScroll ? View.OVER_SCROLL_ALWAYS : View.OVER_SCROLL_NEVER);
+
+            String sig = targetSpan + "|" + itemCount + "|" + cappedRvH + "|" + desiredPopupH + "|" + desiredPopupW;
             if (sig.equals(root.getTag(TAG_LAST_TOOL_GRID_SIG))
-                    && Math.abs(rv.getHeight() - cappedRvH) <= 2) {
+                    && Math.abs(rv.getHeight() - cappedRvH) <= 2
+                    && (pw == null || Math.abs(pw.getWidth() - desiredPopupW) <= 2)) {
                 return;
             }
             root.setTag(TAG_LAST_TOOL_GRID_SIG, sig);
@@ -4483,7 +4997,7 @@ public final class WorkspaceUiController {
                     ViewGroup.MarginLayoutParams bMlp = (ViewGroup.MarginLayoutParams) bLp;
                     targetBubbleH -= bMlp.topMargin + bMlp.bottomMargin;
                 }
-                if (targetBubbleH > 0 && bLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                if (targetBubbleH > 0 && bLp.height != targetBubbleH) {
                     bLp.height = targetBubbleH;
                     bubbleView.setLayoutParams(bLp);
                 }
@@ -4492,9 +5006,10 @@ public final class WorkspaceUiController {
                 unclipContainerSafely((ViewGroup) root);
             }
             if (pw != null) {
+                pw.setWidth(desiredPopupW);
                 pw.setHeight(desiredPopupH);
                 if (pw.isShowing()) {
-                    pw.update(curW > 0 ? curW : -1, desiredPopupH);
+                    pw.update(desiredPopupW, desiredPopupH);
                 }
             }
         } catch (Throwable ignored) {}

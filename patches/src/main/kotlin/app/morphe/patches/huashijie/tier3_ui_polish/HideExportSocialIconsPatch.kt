@@ -10,7 +10,9 @@ import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toFingerprint
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
+import app.morphe.patches.huashijie.core.findPrevOpcode
 import app.morphe.patches.huashijie.core.hookPaintBubblePopupBeforeShow
+import app.morphe.patches.huashijie.core.invokeRegisterList
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
@@ -23,6 +25,22 @@ import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 import com.android.tools.smali.dexlib2.iface.reference.TypeReference
+
+private const val CUSTOM_PLATFORM_ADAPTER_CLASS =
+    "Lcn/sharesdk/onekeyshare/themes/classic/CustomPlatformPageAdapter;"
+private const val BIND_CUSTOM_EXPORT_CLICK_SIG =
+    "Lapp/morphe/extension/huashijie/GlobalCompatibilityController;->bindCustomExportClick(Ljava/lang/Object;Landroid/view/View;)V"
+private val customAdapterOnBindFingerprint = Fingerprint(
+    name = "onBindViewHolder",
+    returnType = "V",
+    parameters = listOf(
+        "Lcn/sharesdk/onekeyshare/themes/classic/CustomPlatformPageAdapter\$ViewHolder;",
+        "I",
+    ),
+    custom = { _, classDef ->
+        classDef.type == CUSTOM_PLATFORM_ADAPTER_CLASS
+    },
+)
 
 private const val TOGGLE_KEY = "pure_studio_hide_domestic_export"
 private const val WORKSPACE_UI_CONTROLLER =
@@ -140,35 +158,23 @@ private fun findExportListRegistersBefore(
     return ordered.toList()
 }
 
-@Suppress("unused")
-val hideExportSocialIconsPatch = bytecodePatch(
-    name = "Hide Domestic Export Social Icons",
-    description = "Hides domestic social sharing channels in ExportPictureView and PaintActivity export popups via TranslationEngine.dispatch.",
-    default = true,
-) {
-    dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)
-    compatibleWith(HUASHIJIE_COMPATIBILITY)
-    extendWith("extensions/huashijie-libre.mpe")
-
-    execute {
-        registerToggleBeforeSettingsPanel(TOGGLE_KEY)
-
-        val classes = allClasses()
-        val epCreateMethod = exportPictureCreateViewFingerprint.method
-        val epCreateRetIdx = epCreateMethod.implementation!!.instructions.indexOfLast {
-            it.opcode == Opcode.RETURN_OBJECT
-        }
-        check(epCreateRetIdx >= 0) { "RETURN_OBJECT not found in ExportPictureView.onCreateView" }
-        injectDispatchOnObjectReg(epCreateMethod, epCreateRetIdx) { m, idx ->
-            (m.implementation!!.instructions[idx] as OneRegisterInstruction).registerA
-        }
-
-        val prepMethod = toMutableMethod(MultiVersionResolvers.resolveExportPictureViewPrepareAdapter(classes))
-        val prepInsns = prepMethod.implementation!!.instructions
+internal fun BytecodePatchContext.ensureExportAdapterShareHooksInjected() {
+    val classes = allClasses()
+    val prepMethod = toMutableMethod(MultiVersionResolvers.resolveExportPictureViewPrepareAdapter(classes))
+    val prepInsns = prepMethod.implementation!!.instructions
+    val alreadyPrepared = prepInsns.indices.any { idx ->
+        if (idx == 0) return@any false
+        val ref = (prepInsns[idx] as? ReferenceInstruction)?.reference as? MethodReference ?: return@any false
+        val prev = prepInsns[idx - 1] as? com.android.tools.smali.dexlib2.iface.instruction.NarrowLiteralInstruction
+            ?: return@any false
+        prev.narrowLiteral == OP_HIDE_EXPORT_SOCIAL_ICONS &&
+            "${ref.definingClass}->${ref.name}${ref.parameterTypes.joinToString("", "(", ")")}${ref.returnType}" == TRANSLATION_ENGINE_DISPATCH
+    }
+    if (!alreadyPrepared) {
         val newInstanceIdx = prepInsns.indexOfFirst { insn ->
             if (insn.opcode != Opcode.NEW_INSTANCE) return@indexOfFirst false
             val typeRef = (insn as? ReferenceInstruction)?.reference as? TypeReference
-            typeRef?.type == "Lcn/sharesdk/onekeyshare/themes/classic/CustomPlatformPageAdapter;"
+            typeRef?.type == CUSTOM_PLATFORM_ADAPTER_CLASS
         }
         check(newInstanceIdx >= 0) {
             "CustomPlatformPageAdapter NEW_INSTANCE not found in ExportPictureView prepareAdapter"
@@ -193,7 +199,7 @@ val hideExportSocialIconsPatch = bytecodePatch(
         val newInstanceAfterExpandIdx = newInsns.indexOfFirst { insn ->
             if (insn.opcode != Opcode.NEW_INSTANCE) return@indexOfFirst false
             val typeRef = (insn as? ReferenceInstruction)?.reference as? TypeReference
-            typeRef?.type == "Lcn/sharesdk/onekeyshare/themes/classic/CustomPlatformPageAdapter;"
+            typeRef?.type == CUSTOM_PLATFORM_ADAPTER_CLASS
         }
         val finalListRegs = findExportListRegistersBefore(newInsns, newInstanceAfterExpandIdx)
         val finalList1Reg = finalListRegs[0]
@@ -223,6 +229,81 @@ val hideExportSocialIconsPatch = bytecodePatch(
             invoke-static {v$scratchReg, v$arrReg}, $TRANSLATION_ENGINE_DISPATCH
             """.trimIndent(),
         )
+    }
+
+    val bindMethod = customAdapterOnBindFingerprint.method
+    val bindInsns = bindMethod.implementation!!.instructions
+    val alreadyBound = bindInsns.any { insn ->
+        val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference
+        ref != null &&
+            "${ref.definingClass}->${ref.name}${ref.parameterTypes.joinToString("", "(", ")")}${ref.returnType}" == BIND_CUSTOM_EXPORT_CLICK_SIG
+    }
+    if (!alreadyBound) {
+        val retIdx = bindInsns.indexOfLast { it.opcode == Opcode.RETURN_VOID }
+        check(retIdx >= 0) { "RETURN_VOID not found in CustomPlatformPageAdapter.onBindViewHolder" }
+        val setTagIdx = bindInsns.findPrevOpcode(retIdx, Opcode.INVOKE_VIRTUAL, maxLookback = 4)
+        check(setTagIdx >= 0) { "View.setTag not found before RETURN_VOID in CustomPlatformPageAdapter.onBindViewHolder" }
+        val setTagRef = (bindInsns[setTagIdx] as? ReferenceInstruction)?.reference as? MethodReference
+        check(
+            setTagRef != null &&
+                setTagRef.definingClass == "Landroid/view/View;" &&
+                setTagRef.name == "setTag",
+        ) {
+            "Expected View.setTag before RETURN_VOID in CustomPlatformPageAdapter.onBindViewHolder, got $setTagRef"
+        }
+
+        val thisReg = bindMethod.thisRegisterIndex()
+        val rootViewReg = invokeRegisterList(bindInsns[setTagIdx])[0]
+        if (thisReg in 0..15 && rootViewReg in 0..15) {
+            bindMethod.addInstructionsPreservingLabels(
+                retIdx,
+                "invoke-static {v$thisReg, v$rootViewReg}, $BIND_CUSTOM_EXPORT_CLICK_SIG",
+            )
+        } else {
+            val (t1, lowThis, idx1) = resolveLowRegisterAt(bindMethod, retIdx, thisReg, rootViewReg)
+            val finalThis = t1.thisRegisterIndex()
+            val finalSetTagIdx = t1.implementation!!.instructions.findPrevOpcode(idx1, Opcode.INVOKE_VIRTUAL, maxLookback = 4)
+            val finalRootView = invokeRegisterList(t1.implementation!!.instructions[finalSetTagIdx])[0]
+            val (t2, lowRoot, idx2) = resolveLowRegisterAt(t1, idx1, lowThis, finalThis, finalRootView)
+            val fThis = t2.thisRegisterIndex()
+            val fSetTagIdx = t2.implementation!!.instructions.findPrevOpcode(idx2, Opcode.INVOKE_VIRTUAL, maxLookback = 4)
+            val fRoot = invokeRegisterList(t2.implementation!!.instructions[fSetTagIdx])[0]
+            t2.addInstructionsPreservingLabels(
+                idx2,
+                """
+                move-object/from16 v$lowThis, v$fThis
+                move-object/from16 v$lowRoot, v$fRoot
+                invoke-static {v$lowThis, v$lowRoot}, $BIND_CUSTOM_EXPORT_CLICK_SIG
+                """.trimIndent(),
+            )
+        }
+    }
+}
+
+@Suppress("unused")
+val hideExportSocialIconsPatch = bytecodePatch(
+    name = "Hide Domestic Export Social Icons",
+    description = "Hides domestic social sharing channels in ExportPictureView and PaintActivity export popups via TranslationEngine.dispatch.",
+    default = true,
+) {
+    dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)
+    compatibleWith(HUASHIJIE_COMPATIBILITY)
+    extendWith("extensions/huashijie-libre.mpe")
+
+    execute {
+        registerToggleBeforeSettingsPanel(TOGGLE_KEY)
+
+        val classes = allClasses()
+        val epCreateMethod = exportPictureCreateViewFingerprint.method
+        val epCreateRetIdx = epCreateMethod.implementation!!.instructions.indexOfLast {
+            it.opcode == Opcode.RETURN_OBJECT
+        }
+        check(epCreateRetIdx >= 0) { "RETURN_OBJECT not found in ExportPictureView.onCreateView" }
+        injectDispatchOnObjectReg(epCreateMethod, epCreateRetIdx) { m, idx ->
+            (m.implementation!!.instructions[idx] as OneRegisterInstruction).registerA
+        }
+
+        ensureExportAdapterShareHooksInjected()
 
         val bubbleType = MultiVersionResolvers.resolveBubblePopupClass(classes).type
         val paintClass = MultiVersionResolvers.resolvePaintActivityClass(classes)

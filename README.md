@@ -2,11 +2,11 @@
 
 # HuashijieLibre
 
-**Open-source Morphe patch suite that brings multi-language JSON localization, offline workflow access, and canvas ergonomics to HuashijiePro v3.4.6.**
+**Open-source Morphe patch suite that brings multi-language JSON localization, offline workflow access, and canvas ergonomics to 画世界Pro v3.4.6.**
 
-[![Pre-release](https://img.shields.io/badge/Pre--release-v1.0.0--beta.1-0969DA?style=for-the-badge&logo=github)](https://github.com/Doni4c/HuashijieLibre/releases)
+[![Latest Release](https://img.shields.io/github/v/release/Doni4c/HuashijieLibre?include_prereleases&style=for-the-badge&logo=github&label=Release&color=0969DA)](https://github.com/Doni4c/HuashijieLibre/releases)
 [![Target App](https://img.shields.io/badge/Target-net.huanci.hsjpro%20v3.4.6%20%5B313%5D-1F883D?style=for-the-badge&logo=android)](https://github.com/Doni4c/HuashijieLibre/releases)
-[![Patches](https://img.shields.io/badge/Patches-37%20Atomic%20Modules-8250DF?style=for-the-badge)](#patch-catalog)
+[![Patches](https://img.shields.io/badge/Patches-38%20Atomic%20Modules-8250DF?style=for-the-badge)](#patch-catalog)
 [![Morphe Patcher](https://img.shields.io/badge/Morphe%20Patcher-v2.3.0-BF3989?style=for-the-badge)](https://morphe.software/)
 [![Localization](https://img.shields.io/badge/Localization-Multi--Language%20JSON-D97706?style=for-the-badge)](TRANSLATING.md)
 [![GPL-3.0 License](https://img.shields.io/badge/License-GPL--3.0-DC2626?style=for-the-badge)](LICENSE)
@@ -17,42 +17,42 @@
 
 ## Overview
 
-HuashijiePro (developed by Shijiazhuang Huanci Network Technology Co., Ltd.) delivers fast brush physics, high layer limits on mid-range hardware, frame-by-frame animation, and subscription-free PSD export. Because its latest releases primarily ship through mainland Chinese distribution channels, international users on v3.4.6 encounter a Simplified Chinese-only interface, +86 phone login gates around local tools such as PDF export and custom brush parameter editing, splash advertisements, and domestic analytics SDKs.
+画世界Pro delivers responsive brush physics, generous layer limits on mid-range hardware, frame-by-frame animation, and subscription-free PSD export. Because its latest releases primarily ship through mainland Chinese distribution channels, international artists on v3.4.6 face a Simplified Chinese-only interface, +86 phone login gates around local features such as PDF export and brush parameter editing, startup splash advertisements, and domestic analytics SDKs.
 
-HuashijieLibre provides 37 modular Morphe patches that translate the interface through externalizable JSON language packs, restore offline access to local studio tools, hide domestic social and cloud clutter, and refine canvas usability (tap-outside Lasso exit, two-finger reference window rotation, optional floating brush sliders, watermark-free timelapse exports via Android Share Sheet, transparent `.hsj` storage paths, custom `.ttf`/`.otf` UI typography, and adaptive text fitting).
+HuashijieLibre provides 38 independent Morphe patches that localize the entire studio through externalizable JSON language packs, restore offline access to local drawing tools, clear domestic social and cloud clutter, and refine everyday canvas ergonomics (smart tap-outside selection exit, damped two-finger reference rotation, optional Procreate-style floating brush sliders with compact landscape sidebars, responsive landscape tool grids, watermark-free timelapse export via Android Share Sheet, transparent `.hsj` storage paths, custom `.ttf`/`.otf` UI typography, and adaptive text fitting).
 
 ## Compatibility and Artifacts
 
 | Property | Specification |
 | :--- | :--- |
-| Package ID | `net.huanci.hsjpro` |
+| Target Application | 画世界Pro (`net.huanci.hsjpro`) |
 | Target Version and Build | v3.4.6 (versionCode 313) |
 | Clean Base APK SHA-256 | `1d5bfdcc32d9a593c3f34bc83c3af300ac19e691082b620bd89cfb46fc7271aa` |
 | Supported ABIs | Universal (arm64-v8a, armeabi-v7a) matching stock APK |
 | Patch Engine | Morphe Patcher 2.3.0 (`app.morphe.patches` 2.1.0) |
-| Release Artifact Policy | Patch bundle only (`patches-1.0.0-beta.1.mpp`); no modified APKs or keystores hosted |
+| Release Artifact Policy | Patch bundle only (`*.mpp`); no modified APKs or signing keystores hosted |
 
 ## Architecture Overview
 
-Each capability is compiled as an independent Morphe patch and paired with runtime toggle registration under Settings > General Settings > Huashijie Libre. Modules excluded during patching do not leave dead switches in the in-app menu. Modules are organized into seven functional groups according to architectural scope:
+Each capability compiles as an independent Morphe patch paired with runtime toggle registration under Settings > General Settings > HuashijieLibre. Modules excluded at patch time leave no dead switches in the in-app menu. Modules are organized into seven functional groups by architectural scope:
 
 | Module Group | Patch Count | Classification Boundary |
 | :--- | :---: | :--- |
-| Core Foundation | 2 | App integrity bypasses and in-app preference infrastructure shared by all feature modules |
-| Localization and Typography | 3 | String interception, external JSON dictionary loading, and global typeface replacement |
-| Privacy, Telemetry, and Account Decluttering | 12 | Background analytics SDK deactivation, ad suppression, and domestic cloud/login entry removal |
-| Workspace UI Decluttering | 6 | Hiding promotional store entries and non-local social grids across studio popups |
-| Startup and System Sharing | 3 | Boot flow acceleration and replacement of proprietary share sheets with Android system dialogs |
+| Core Foundation | 2 | App integrity verification bypasses and shared in-app configuration infrastructure |
+| Localization and Typography | 3 | Runtime string interception, external JSON dictionary loading, and global typeface replacement |
+| Privacy, Telemetry, and Account Decluttering | 12 | Background analytics SDK deactivation, ad suppression, and domestic cloud or login entry removal |
+| Workspace UI Decluttering | 6 | Hiding promotional storefronts and domestic social rows across studio dialogs |
+| Startup and System Sharing | 4 | Boot acceleration, Android Share Sheet routing, and dedicated export share entry controls |
 | Offline Profile and Brush Access | 3 | Unlocking local creation tools and brush storage gated behind remote account checks |
-| Canvas Workflow and Layout Geometry | 8 | Interactive drawing gestures, media export cleanup, storage visibility, and UI geometry fixes |
+| Canvas Workflow and Layout Geometry | 8 | Interactive canvas gestures, clean media export, storage visibility, and responsive layout polish |
 
 ## Installation
 
 Version 3.4.6 (build 313) is the sole verified target build. Obtain an unmodified `net.huanci.hsjpro` v3.4.6 APK (from an existing device backup or public APK archive) and verify that its SHA-256 checksum matches `1d5bfdcc32d9a593c3f34bc83c3af300ac19e691082b620bd89cfb46fc7271aa` before patching.
 
 1. Install Morphe Manager on Android and open [**Add to Morphe**](https://morphe.software/add-source?github=Doni4c%2FHuashijieLibre), or paste `https://github.com/Doni4c/HuashijieLibre` inside the Sources tab (manifest fallback: `https://raw.githubusercontent.com/Doni4c/HuashijieLibre/main/patches-bundle.json`).
-2. In the Apps tab, select HuashijiePro v3.4.6, tap No, I already have it, and pick your verified `base.apk` file from local storage.
-3. Patch with the default selection (enable Expert mode in Morphe Manager settings beforehand if you wish to include or exclude individual patches), then tap Install when finished and grant storage permission on first launch.
+2. In the Apps tab, select 画世界Pro v3.4.6, tap No, I already have it, and choose your verified `base.apk` file from local storage.
+3. Patch with the default selection (enable Expert mode in Morphe Manager settings beforehand to include or exclude individual modules), then tap Install and grant storage permission on first launch.
 
 > [!WARNING]
 > **Back Up Your Signing Key and `.hsj` Drafts After Your First Build.**
@@ -60,30 +60,30 @@ Version 3.4.6 (build 313) is the sole verified target build. Obtain an unmodifie
 
 ## Patch Catalog
 
-Modules disabled at build time are omitted cleanly from the APK, and installed modules expose matching runtime switches in General Settings. Floating Brush Sliders compiles as ON by default at patch time while starting OFF at runtime so drag handles stay hidden until you explicitly turn them on.
+Modules disabled at build time are omitted cleanly from the APK, and installed modules expose matching runtime switches in General Settings. Floating Brush Sliders compiles as ON by default at patch time while starting OFF at runtime so drag handles stay hidden until you explicitly enable them.
 
 ### 1. Core Foundation (2 Patches)
 
-**Classification criteria:** This group is restricted to low-level application stability and shared configuration plumbing that other patches depend on (`Native Signature Bypass` and `Libre In App Settings Panel`). Any module that does not provide foundational launch compatibility or host-wide settings dispatch belongs in a feature group below rather than here.
+**Classification criteria:** Restricted to low-level launch stability and shared preference infrastructure that all feature modules depend on (`Native Signature Bypass` and `Libre In App Settings Panel`).
 
 | Patch Name | Default | Behavior |
 | :--- | :---: | :--- |
-| Native Signature Bypass | ON | Prevents native signature checks from rejecting patched APK builds during startup. |
-| Libre In App Settings Panel | ON | Injects the Huashijie Libre settings screen grouped by workflow, including an asynchronous GitHub update checker, Credits, license details, and diagnostics export. |
+| Native Signature Bypass | ON | Verifies original native byte signatures before patching `libPaintLib.so` so patched APK builds pass startup checks safely. |
+| Libre In App Settings Panel | ON | Initializes preferences early in `DrawApplication`, flushes settings synchronously before restarts, and injects the inset-aware HuashijieLibre settings screen with GitHub update checks, Credits, license details, and diagnostics export. |
 
 ### 2. Localization and Typography (3 Patches)
 
-**Classification criteria:** This group owns resource bundling, runtime text interception, and font rendering across Android Views, dialogs, and custom Canvas draws. Patches that modify specific layout bounds or spacing without performing text translation or font injection belong to Canvas Workflow and Layout Geometry instead.
+**Classification criteria:** Owns resource bundling, runtime text interception, and font rendering across Android Views, dialogs, and custom Canvas draws.
 
 | Patch Name | Default | Behavior |
 | :--- | :---: | :--- |
-| Language Pack Resources | ON | Bundles built-in JSON dictionaries in `lang/` alongside the Simplified Chinese reference `_template_zh.json`. |
-| Dynamic External Translation Engine | ON | Intercepts UI strings across views, dialogs, popups, adapters, and `StringFog` calls with zero-flicker Frame-0 rendering and hot-reload support. |
-| Custom UI Font Injection | ON | Applies `.ttf` or `.otf` typefaces from `/sdcard/HuashijiePro/fonts/` across the app while preserving bold and italic weights. |
+| Language Pack Resources | ON | Bundles built-in JSON dictionaries in `lang/` alongside the Simplified Chinese source template `_template_zh.json`. |
+| Dynamic External Translation Engine | ON | Intercepts UI strings across views, dialogs, popups, adapters, and `StringFog` calls with zero-flicker Frame-0 rendering, hot-reload support, and protection for filesystem folder IDs. |
+| Custom UI Font Injection | ON | Applies `.ttf` or `.otf` typefaces from `/sdcard/HuashijiePro/fonts/` across the app while preserving bold and italic weights and clean resets to the system default. |
 
 ### 3. Privacy, Telemetry, and Account Decluttering (12 Patches)
 
-**Classification criteria:** This group targets background tracking libraries, ad network loaders, and cloud/account surfaces that require network sign-in or transmit usage telemetry. Offline feature unlocking goes to Offline Profile and Brush Access, while shop/social icon cleanup inside local creative panels goes to Workspace UI Decluttering.
+**Classification criteria:** Targets background tracking libraries, ad loaders, and domestic cloud or account surfaces that require network sign-in or transmit usage telemetry.
 
 | Patch Name | Default | Behavior |
 | :--- | :---: | :--- |
@@ -96,13 +96,13 @@ Modules disabled at build time are omitted cleanly from the APK, and installed m
 | Hide Top Bar Cloud Button | ON | Hides gallery top-bar cloud sync buttons and blocks accidental click triggers. |
 | Hide Canvas Popup Cloud Sync | ON | Hides cloud backup controls and the cloud tab inside the `PaintActivity` settings popup. |
 | Hide Draft Cloud Badge | ON | Hides cloud sync status icons and progress overlays on draft thumbnails. |
-| Hide Exit Cloud Sync Option | ON | Hides cloud upload toggles inside the canvas exit prompt while keeping local save and exit actions. |
-| Hide Baidu Cloud Backup Entry | ON | Hides the Baidu Netdisk backup entry in General Settings. |
+| Hide Exit Cloud Sync Option | ON | Hides cloud upload toggles inside the canvas exit prompt while keeping local save actions and balanced dialog spacing. |
+| Hide Baidu Cloud Backup Entry | ON | Hides the Baidu Netdisk backup entry inside the main navigation drawer. |
 | Hide Drawer VIP Banner | ON | Hides the promotional VIP membership banner inside the navigation drawer. |
 
 ### 4. Workspace UI Decluttering (6 Patches)
 
-**Classification criteria:** This group removes promotional storefronts, online template promos, and domestic third-party social share rows from local creation popups without altering underlying export or sharing intents. Behavior that reroutes system intents belongs to Startup and System Sharing.
+**Classification criteria:** Removes promotional storefronts, online template promos, and domestic social share rows from local creation popups without altering underlying share intents.
 
 | Patch Name | Default | Behavior |
 | :--- | :---: | :--- |
@@ -113,39 +113,40 @@ Modules disabled at build time are omitted cleanly from the APK, and installed m
 | Hide Domestic Export Social Icons | ON | Hides domestic social channel rows in the image export panel while keeping local export actions intact. |
 | Hide Timelapse Export Social Icons | ON | Hides domestic social channel buttons in the timelapse export panel while keeping save and quality options intact. |
 
-### 5. Startup and System Sharing (3 Patches)
+### 5. Startup and System Sharing (4 Patches)
 
-**Classification criteria:** This group modifies top-level navigation and Android OS integration, specifically accelerating cold boot navigation and replacing proprietary sharing SDK flows with `Intent.createChooser`.
+**Classification criteria:** Modifies top-level boot navigation and Android OS sharing integration, including external file launch handling and `FileProvider`-backed `Intent.createChooser` flows.
 
 | Patch Name | Default | Behavior |
 | :--- | :---: | :--- |
-| Instant Launch to Studio | ON | Bypasses the `FlashActivity` splash countdown and preloads brushes directly into the draft gallery. |
-| Native Android Share Sheet | ON | Routes artwork and `.hsj` exports in `PaintActivity` through Android's native Share Sheet instead of domestic ShareSDK. |
-| Replay Android Share Sheet | ON | Routes speedpaint exports in `ReplayActivity` through the standard Android Share Sheet. |
+| Instant Launch to Studio | ON | Bypasses the `FlashActivity` splash countdown while preserving external file open intents (`ACTION_VIEW` and `ACTION_SEND`) and safe Process Death recovery. |
+| Native Android Share Sheet | ON | Routes artwork, PSD, PDF, brush, animation frame folder, and `.hsj` exports in `PaintActivity` through Android's native Share Sheet using `content://` `FileProvider` URIs. |
+| Replay Android Share Sheet | ON | Routes speedpaint video exports in `ReplayActivity` through the standard Android Share Sheet. |
+| Export Sheet Share Button | ON | Adds an independent System Share button beside Album and File inside the `ExportPictureView` sheet for both artwork and timelapse exports. |
 
 ### 6. Offline Profile and Brush Access (3 Patches)
 
-**Classification criteria:** This group handles local entitlement and storage sovereignty, supplying in-memory offline account stubs and preserving user brush files when operating completely offline without mainland phone verification.
+**Classification criteria:** Supplies local entitlement and storage sovereignty without requiring mainland phone verification, while preserving any real signed-in account session.
 
 | Patch Name | Default | Behavior |
 | :--- | :---: | :--- |
-| Local Artist Profile | ON | Supplies an offline profile in memory so login-gated local tools such as PDF export function without an account. |
+| Local Artist Profile | ON | Supplies an in-memory offline profile when signed out so login-gated local tools such as PDF export work offline without overwriting active real accounts. |
 | Custom Brush Sovereignty | ON | Restores editing, renaming, and duplicating permissions for preset and locally imported brushes offline. |
 | External Local Brush Scanning | ON | Scans `/sdcard/HuashijiePro/ASBrush` on startup and preserves imported brush packs during offline sessions. |
 
 ### 7. Canvas Workflow and Layout Geometry (8 Patches)
 
-**Classification criteria:** This group encapsulates studio ergonomics, interactive touch gestures inside `PaintActivity`, output media cleanup, explicit storage path transparency, and programmatic geometric alignment/auto-fit layout fixes for non-Chinese scripts.
+**Classification criteria:** Encapsulates studio ergonomics, interactive touch gestures inside `PaintActivity`, output media cleanup, explicit storage path transparency, and responsive layout fixes for non-Chinese scripts.
 
 | Patch Name | Default | Behavior |
 | :--- | :---: | :--- |
-| Lasso Tap-Outside Exit | ON | Dismisses active selection toolbars with a single tap outside the panel without interrupting brush strokes. |
-| Floating Brush Sliders | ON (Runtime OFF) | Adds a draggable handle above the brush size and opacity sliders once enabled in General Settings. |
-| Two-Finger Reference Rotation | ON | Enables free two-finger rotation gestures inside the floating reference image window. |
+| Lasso Tap-Outside Exit | ON | Dismisses active selection mode with a single tap outside the selection bounds while protecting Magic Wand, Polygonal Lasso, Move/Transform, and active Symmetry/Perspective/Animation bars. |
+| Floating Brush Sliders | ON (Runtime OFF) | Places a draggable 2x2 dot handle between the brush size and opacity sliders with normalized screen-ratio persistence, safe cutout-aware compact landscape sidebars, and crash-guarded layout hooks. |
+| Two-Finger Reference Rotation | ON | Enables free two-finger rotation inside the floating reference image window with an 8-degree anti-tilt deadzone during pinch zoom and wrap-around angle smoothing. |
 | Watermark Free Timelapse Export | ON | Removes the corner brand watermark during `ReplayActivity` playback and video export. |
-| HSJ File Path Display | ON | Displays explicit local `.hsj` draft and export folder cards inside Draft Storage Settings. |
-| Canvas Popup HSJ Path Row | ON | Appends a local `.hsj` folder info row inside the `PaintActivity` canvas settings tab. |
-| Canvas Popup Geometric Polish | ON | Balances canvas popup rows, compacts scroll cushions, centers icon clusters, and refines floating toolbars. |
+| HSJ File Path Display | ON | Displays the active local `.hsj` draft and export folder paths dynamically inside Draft Storage Settings. |
+| Canvas Popup HSJ Path Row | ON | Appends the active local `.hsj` folder info row inside the `PaintActivity` canvas settings tab with tap-to-copy clipboard support. |
+| Canvas Popup Geometric Polish | ON | Balances canvas popup rows, adapts the left tool grid between 2 portrait columns and 3 to 4 scrollable landscape columns, and refines floating toolbars. |
 | Narrow Button Text Auto Fit | ON | Scales and wraps localized labels inside tight buttons, tabs, and dialogs to prevent text truncation. |
 
 ## Custom Languages and Fonts
@@ -154,13 +155,13 @@ You do not need to rebuild the APK to test a custom translation draft or change 
 
 1. Copy a UTF-8 JSON language pack into `/storage/emulated/0/HuashijiePro/lang/`.
 2. Copy `.ttf` or `.otf` font files into `/storage/emulated/0/HuashijiePro/fonts/`.
-3. Open Settings > General Settings > Huashijie Libre and pick your file under Active language pack or Custom UI font for immediate reload.
+3. Open Settings > General Settings > HuashijieLibre and pick your file under Active language pack or Custom UI font for immediate reload.
 
 ## Contributing and Local Builds
 
-Translators can contribute new packs without writing code or compiling Android projects. Every pack in `lang/` maintains strict 100% key parity with `lang/_template_zh.json`. Detailed key format rules and device preview steps are documented in [TRANSLATING.md](TRANSLATING.md).
+Translators can contribute new packs without writing code or compiling Android projects. Detailed workflow guidelines, priority tiers, digital art terminology standards, and live device preview steps are documented in [TRANSLATING.md](TRANSLATING.md).
 
-Patch implementations live under `patches/src/main/kotlin/app/morphe/patches/huashijie/` across seven packages matching the catalog groups above, built against `app.morphe.patches` 2.1.0 and Morphe Patcher 2.3.0. Runtime controllers under `extensions/huashijie-libre/` compile into extension DEX (`classes6.dex`), routing `classes4.dex` hooks through `TranslationEngine.dispatch` to stay beneath the 65,535-method reference ceiling.
+Patch implementations live under `patches/src/main/kotlin/app/morphe/patches/huashijie/` across seven packages matching the catalog groups above, built against `app.morphe.patches` 2.1.0 and Morphe Patcher 2.3.0. Runtime controllers under `extensions/huashijie-libre/` compile into extension DEX (`classes6.dex`), routing `classes4.dex` hooks through `TranslationEngine.dispatch` to preserve the strict zero-new-MethodReference budget beneath the 65,535-method ceiling.
 
 Local builds require JDK 21 (targeting Java 17 bytecode), an Android SDK, and GitHub Packages read credentials (`GITHUB_ACTOR` and `GITHUB_TOKEN` in environment variables or `~/.gradle/gradle.properties`):
 
@@ -177,5 +178,5 @@ Local builds require JDK 21 (targeting Java 17 bytecode), an Android SDK, and Gi
 
 ## Disclaimer
 
-1. **Independent project:** HuashijieLibre is an independent open-source Morphe patch collection not affiliated with Shijiazhuang Huanci Network Technology Co., Ltd. No copyrighted APKs, pre-patched binaries, or signing keystores are hosted in this repository.
+1. **Independent project:** HuashijieLibre is an independent open-source Morphe patch collection not affiliated with Shijiazhuang Huanci Network Technology or Hangzhou Mojing Technology. No copyrighted APKs, pre-patched binaries, or signing keystores are hosted in this repository.
 2. **Modular control:** Every patch is independently toggleable at patch time and exposed as a live preference in General Settings.

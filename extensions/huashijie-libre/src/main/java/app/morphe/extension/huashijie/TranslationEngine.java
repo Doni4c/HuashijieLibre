@@ -91,6 +91,9 @@ public final class TranslationEngine {
     public static final int OP_IS_CLEAN_SPEEDPAINT = 71;
     public static final int OP_APPLY_TEXT_AUTO_FIT = 72;
     public static final int OP_CANVAS_POPUP_POLISH = 73;
+    public static final int OP_FILTER_REF_ROTATION = 74;
+    public static final int OP_BEFORE_LEFT_SETTING_LAYOUT = 75;
+    public static final int OP_AFTER_LEFT_SETTING_LAYOUT = 76;
 
     private static final int TAG_KEY_ORIG_TEXT = 0x7e090d00;
     private static final int TAG_KEY_ORIG_HINT = 0x7e090d01;
@@ -158,6 +161,9 @@ public final class TranslationEngine {
     private static volatile Object sWmgInstance = null;
     private static volatile Field sWmgViewsField = null;
     private static volatile boolean sLayoutDirty = true;
+    private static volatile int sProtectedSdcardRootId = 0x7f110803;
+    private static volatile int sProtectedAlbumFolderId = 0x7f110077;
+    private static volatile boolean sProtectedIdsResolved = false;
     private static Context sAppContext;
 
     public static void markLayoutDirty() {
@@ -380,6 +386,14 @@ public final class TranslationEngine {
                     }
                     return null;
                 }
+                case OP_FILTER_REF_ROTATION:
+                    return UiUxController.filterReferenceRotationDelta(arg);
+                case OP_BEFORE_LEFT_SETTING_LAYOUT:
+                    UiUxController.onBeforeLeftSettingLayout(arg);
+                    return null;
+                case OP_AFTER_LEFT_SETTING_LAYOUT:
+                    UiUxController.onAfterLeftSettingLayout(arg);
+                    return null;
                 default:
                     return null;
             }
@@ -860,10 +874,27 @@ public final class TranslationEngine {
         } catch (Throwable ignored) {}
     }
 
+    private static boolean isProtectedFilesystemResId(int resId) {
+        if (!sProtectedIdsResolved && sAppContext != null) {
+            int sdId = LibreResourceResolver.resolveStringId(sAppContext, "sdcard_root_folder", 0x7f110803);
+            int albId = LibreResourceResolver.resolveStringId(sAppContext, "album_folder", 0x7f110077);
+            if (sdId != 0) sProtectedSdcardRootId = sdId;
+            if (albId != 0) sProtectedAlbumFolderId = albId;
+            sProtectedIdsResolved = true;
+        }
+        return resId == 0x7f110803
+                || resId == 0x7f110077
+                || resId == sProtectedSdcardRootId
+                || resId == sProtectedAlbumFolderId;
+    }
+
     /**
      * Primary hook point for AssetsUtil.getString(int) and Resources.getString(int).
      */
     public static String translateById(int resId, String original) {
+        if (isProtectedFilesystemResId(resId)) {
+            return original;
+        }
         if (original == null || !isDynamicI18nEnabled()) {
             return original;
         }
@@ -945,6 +976,25 @@ public final class TranslationEngine {
             }
         }
         loadSelectedLanguagePack();
+    }
+
+    /**
+     * Toggles dynamic i18n while suppressing ConfigChangeListener so JSON loading
+     * and view retranslation execute exactly once.
+     */
+    public static void setDynamicI18nEnabled(Activity activity, boolean enabled) {
+        LibreConfig cfg = activity != null ? LibreConfig.get(activity) : LibreConfig.getInstance();
+        if (cfg != null) {
+            sInternalConfigUpdate = true;
+            try {
+                cfg.setEnabled(LibreConfig.KEY_DYNAMIC_I18N, enabled);
+            } finally {
+                sInternalConfigUpdate = false;
+            }
+        }
+        invalidateCachedFlags();
+        loadSelectedLanguagePack();
+        retranslateActiveViews(activity != null ? activity : sAppContext);
     }
 
     /**

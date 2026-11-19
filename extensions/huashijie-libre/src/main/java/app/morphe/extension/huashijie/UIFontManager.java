@@ -77,6 +77,29 @@ public final class UIFontManager {
         } catch (Throwable ignored) {}
     }
 
+    /**
+     * Restores the default system typeface and clears applied typeface tags so switching
+     * back to a previously used custom font takes effect cleanly.
+     */
+    public static void resetDefaultTypeface(View root) {
+        if (root == null) return;
+        try {
+            if (root instanceof TextView) {
+                TextView tv = (TextView) root;
+                Typeface current = tv.getTypeface();
+                int style = current != null ? current.getStyle() : Typeface.NORMAL;
+                tv.setTypeface(Typeface.DEFAULT, style);
+                tv.setTag(TAG_APPLIED_TYPEFACE, null);
+            } else if (root instanceof ViewGroup) {
+                ViewGroup vg = (ViewGroup) root;
+                int count = vg.getChildCount();
+                for (int i = 0; i < count; i++) {
+                    resetDefaultTypeface(vg.getChildAt(i));
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
     private static void applyTypefaceRecursive(View v, Typeface tf) {
         if (v instanceof TextView) {
             TextView tv = (TextView) v;

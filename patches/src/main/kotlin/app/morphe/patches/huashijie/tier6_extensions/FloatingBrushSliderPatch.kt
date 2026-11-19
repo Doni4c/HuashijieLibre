@@ -9,6 +9,7 @@ import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
+import app.morphe.patches.huashijie.core.emitTranslationDispatch
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
@@ -17,10 +18,11 @@ import app.morphe.patches.huashijie.core.thisRegisterIndex
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
-import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
 private const val TOGGLE_KEY = "libre_floating_brush_sliders"
+private const val OP_BEFORE_LEFT_SETTING_LAYOUT = 75
+private const val OP_AFTER_LEFT_SETTING_LAYOUT = 76
 private const val SETUP_FLOATING_SLIDERS =
     "Lapp/morphe/extension/huashijie/UiUxController;->setupFloatingSliders(Landroid/app/Activity;Landroid/view/View;)V"
 
@@ -98,7 +100,8 @@ val floatingBrushSliderPatch = bytecodePatch(
             }
         }
 
-        // Guard null View.setPadding calls after seekbars_view is promoted to paint_root_view.
+        // Temporarily restore promoted seekbars_view around PaintLeftSettingView.setSettingViewLocation()V
+        // so the full original layout computation runs without truncating recyclerView height rules.
         val leftSettingClass = classDefByOrNull("Lnet/huanci/hsjpro/paint/views/PaintLeftSettingView;")
             ?: error("PaintLeftSettingView not found")
         val mutableLeftSetting = mutableClassDefBy(leftSettingClass)
@@ -106,38 +109,59 @@ val floatingBrushSliderPatch = bytecodePatch(
             it.name == "setSettingViewLocation" && it.returnType == "V" && it.implementation != null
         }
         check(locationMethods.isNotEmpty()) { "PaintLeftSettingView.setSettingViewLocation not found" }
-        var guardedCount = 0
+        var hookedCount = 0
         for (locMethod in locationMethods) {
-            val instrs = locMethod.implementation!!.instructions
-            val padIndices = instrs.indices.filter { idx ->
-                val inst = instrs[idx]
-                val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference
-                ref != null &&
-                    (ref.definingClass == "Landroid/view/View;" || ref.definingClass == "Landroid/view/ViewGroup;" || ref.definingClass == "Landroid/widget/RelativeLayout;" || ref.definingClass == "Landroid/widget/LinearLayout;") &&
-                    ref.name == "setPadding"
-            }.reversed()
+            var currentMethod = locMethod
+            val padIndices = currentMethod.implementation!!.instructions.indices
+                .filter { idx ->
+                    val insn = currentMethod.implementation!!.instructions[idx]
+                    if (insn.opcode != Opcode.INVOKE_VIRTUAL) return@filter false
+                    val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference ?: return@filter false
+                    ref.definingClass == "Landroid/view/View;" &&
+                        ref.name == "setPadding" &&
+                        ref.parameterTypes == listOf("I", "I", "I", "I") &&
+                        ref.returnType == "V"
+                }
+                .reversed()
             for (padIdx in padIndices) {
-                val padInst = locMethod.implementation!!.instructions[padIdx]
-                val viewReg = when (padInst) {
-                    is FiveRegisterInstruction -> padInst.registerC
-                    is RegisterRangeInstruction -> padInst.registerCount.takeIf { it > 0 }?.let { padInst.startRegister }
-                    else -> null
-                } ?: continue
+                val insns = currentMethod.implementation!!.instructions
+                val fiveReg = insns[padIdx] as? FiveRegisterInstruction ?: continue
+                val viewReg = fiveReg.registerC
                 if (viewReg !in 0..255) continue
-                locMethod.addInstructionsPreservingLabels(padIdx, "nop")
-                val targetInst = locMethod.getInstruction(padIdx + 1)
-                val labelName = "libre_pad_nonnull_$padIdx"
-                locMethod.addInstructionsWithLabels(
-                    padIdx + 1,
-                    """
-                    if-nez v$viewReg, :$labelName
-                    return-void
-                    """.trimIndent(),
-                    ExternalLabel(labelName, targetInst),
+                var insertAt = padIdx
+                if (currentMethod.getInstruction(insertAt).location.labels.isNotEmpty()) {
+                    currentMethod.addInstructionsPreservingLabels(insertAt, "nop")
+                    insertAt++
+                }
+                val afterPadInsn = currentMethod.getInstruction(insertAt + 1)
+                currentMethod.addInstructionsWithLabels(
+                    insertAt,
+                    "if-eqz v$viewReg, :libre_skip_null_pad_$padIdx",
+                    ExternalLabel("libre_skip_null_pad_$padIdx", afterPadInsn),
                 )
-                guardedCount++
             }
+            val retIndices = currentMethod.implementation!!.instructions.indices
+                .filter { currentMethod.implementation!!.instructions[it].opcode == Opcode.RETURN_VOID }
+                .reversed()
+            check(retIndices.isNotEmpty()) {
+                "RETURN_VOID not found in PaintLeftSettingView.setSettingViewLocation"
+            }
+            for (retIdx in retIndices) {
+                currentMethod = emitTranslationDispatch(
+                    method = currentMethod,
+                    insertIndex = retIdx,
+                    opCode = OP_AFTER_LEFT_SETTING_LAYOUT,
+                    preserveLabels = true,
+                ) { m, _ -> m.thisRegisterIndex() }
+            }
+            emitTranslationDispatch(
+                method = currentMethod,
+                insertIndex = 0,
+                opCode = OP_BEFORE_LEFT_SETTING_LAYOUT,
+                preserveLabels = false,
+            ) { m, _ -> m.thisRegisterIndex() }
+            hookedCount++
         }
-        check(guardedCount > 0) { "View.setPadding not found in PaintLeftSettingView.setSettingViewLocation" }
+        check(hookedCount > 0) { "No setSettingViewLocation method hooked in PaintLeftSettingView" }
     }
 }

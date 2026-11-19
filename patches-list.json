@@ -1,5 +1,5 @@
 {
-  "version": "v1.0.0-beta.1",
+  "version": "v1.0.0",
   "appNames": {
     "net.huanci.hsjpro": "HuashijiePro"
   },
@@ -267,6 +267,38 @@
       "use": true,
       "dependencies": [
         "Language Pack Resources",
+        "Libre In App Settings Panel",
+        "Native Signature Bypass"
+      ],
+      "compatiblePackages": {
+        "net.huanci.hsjpro": [
+          "3.4.6"
+        ]
+      },
+      "compatibility": [
+        {
+          "name": "HuashijiePro",
+          "packageName": "net.huanci.hsjpro",
+          "description": null,
+          "appIconColor": null,
+          "signatures": null,
+          "targets": [
+            {
+              "version": "3.4.6",
+              "experimental": false,
+              "versionCodes": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Export Sheet Share Button",
+      "description": "Adds a standalone Android System Share button next to Album and File inside the export sheet for both artwork and timelapse videos.",
+      "category": null,
+      "use": true,
+      "dependencies": [
         "Libre In App Settings Panel",
         "Native Signature Bypass"
       ],

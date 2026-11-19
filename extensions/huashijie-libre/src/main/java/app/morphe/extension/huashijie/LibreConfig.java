@@ -12,6 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class LibreConfig {
     private static final String PREF_NAME = "huashijie_libre_prefs";
+    private static final String KEY_FLUSH_SEQ = "_libre_flush_seq";
 
     // Base module
     public static final String KEY_ENABLE_ANIMATIONS = "libre_enable_animations";
@@ -40,6 +41,7 @@ public final class LibreConfig {
     public static final String KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL = "pure_studio_hide_timelapse_export_social";
     public static final String KEY_SYSTEM_SHARE = "libre_system_share_sheet";
     public static final String KEY_REPLAY_SYSTEM_SHARE = "libre_replay_system_share";
+    public static final String KEY_EXPORT_SHARE_BUTTON = "libre_export_system_share_button";
     public static final String KEY_BLOCK_TELEMETRY = "pure_studio_block_telemetry";
     public static final String KEY_BLOCK_UMENG_SDK = "pure_studio_block_umeng_sdk";
     public static final String KEY_BLOCK_BUGLY_SDK = "pure_studio_block_bugly_sdk";
@@ -60,6 +62,8 @@ public final class LibreConfig {
     public static final String KEY_FLOATING_BRUSH_SLIDERS = "libre_floating_brush_sliders";
     public static final String KEY_SLIDER_POS_X = "libre_slider_pos_x";
     public static final String KEY_SLIDER_POS_Y = "libre_slider_pos_y";
+    public static final String KEY_SLIDER_NORM_X = "libre_slider_norm_x";
+    public static final String KEY_SLIDER_NORM_Y = "libre_slider_norm_y";
     public static final String KEY_CLEAN_SPEEDPAINT = "libre_clean_speedpaint";
     public static final String KEY_PUBLIC_STORAGE = "storage_transparency_mode";
     public static final String KEY_CANVAS_HSJ_PATH_ROW = "libre_canvas_hsj_path_row";
@@ -192,6 +196,35 @@ public final class LibreConfig {
         if (mPrefs != null) {
             mPrefs.edit().putFloat(KEY_SLIDER_POS_X, x).putFloat(KEY_SLIDER_POS_Y, y).apply();
         }
+    }
+
+    public float getSliderNormX(float defaultVal) {
+        return mPrefs != null ? mPrefs.getFloat(KEY_SLIDER_NORM_X, defaultVal) : defaultVal;
+    }
+
+    public float getSliderNormY(float defaultVal) {
+        return mPrefs != null ? mPrefs.getFloat(KEY_SLIDER_NORM_Y, defaultVal) : defaultVal;
+    }
+
+    public void setSliderNormPos(float normX, float normY) {
+        if (mPrefs != null) {
+            mPrefs.edit().putFloat(KEY_SLIDER_NORM_X, normX).putFloat(KEY_SLIDER_NORM_Y, normY).apply();
+        }
+    }
+
+    /**
+     * Commits a changing sequence value synchronously so pending apply() edits flush to disk
+     * before process termination.
+     */
+    public static void flushSync() {
+        try {
+            LibreConfig cfg = sInstance;
+            if (cfg != null && cfg.mPrefs != null) {
+                long prev = cfg.mPrefs.getLong(KEY_FLUSH_SEQ, 0L);
+                long seq = Math.max(System.currentTimeMillis(), prev + 1L);
+                cfg.mPrefs.edit().putLong(KEY_FLUSH_SEQ, seq).commit();
+            }
+        } catch (Throwable ignored) {}
     }
 
     public void addListener(ConfigChangeListener listener) {
