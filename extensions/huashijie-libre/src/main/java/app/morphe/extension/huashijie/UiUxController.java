@@ -50,6 +50,8 @@ public final class UiUxController {
     private static final int TAG_PLS_ORIG_PAD_R = 0x7e098645;
     private static final int TAG_PLS_LAYOUT_HOOKED = 0x7e098646;
     private static final int TAG_PLS_ORIG_PAD_L = 0x7e098647;
+    private static final int TAG_SLIDER_SELF_LISTENER = 0x7e098648;
+    private static final int TAG_SLIDER_VIS_LISTENER = 0x7e098649;
     private static final float REF_ROTATION_DEADZONE_DEG = 8.0f;
 
     private UiUxController() {}
@@ -809,6 +811,11 @@ public final class UiUxController {
         }
         slider.setTranslationX(0f);
         slider.setTranslationY(0f);
+        if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                slider.setSystemGestureExclusionRects(java.util.Collections.<Rect>emptyList());
+            } catch (Throwable ignored) {}
+        }
         int insertIdx = Math.max(0, Math.min(origIndex, origParent.getChildCount()));
         ViewGroup.LayoutParams safeLp = ensureCompatibleLayoutParams(origParent, origLp);
         origParent.addView(slider, insertIdx, safeLp);
@@ -991,19 +998,18 @@ public final class UiUxController {
                 Context ctx = fullRoot.getContext();
                 int width = sPromotedWidth > 0 ? sPromotedWidth
                         : (slider.getWidth() > 0 ? slider.getWidth() : dpToPx(ctx, 48));
-                ViewGroup.MarginLayoutParams freeLp = (fullRoot instanceof android.widget.RelativeLayout)
-                        ? new android.widget.RelativeLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT)
-                        : new android.widget.FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
-                slider.setLayoutParams(freeLp);
+                slider.setLayoutParams(createFreeSliderLp(fullRoot, width));
                 fullRoot.addView(slider);
             }
+            hookSliderLayoutListener(slider);
+            installFullRootSliderListeners(fullRoot);
             if (origParent != null && slider.getVisibility() != origParent.getVisibility()) {
                 slider.setVisibility(origParent.getVisibility());
             }
             Context ctx = fullRoot.getContext();
             LibreConfig.init(ctx);
-            applyClampedNormalizedSliderPosition(ctx, fullRoot, slider, LibreConfig.get(ctx));
             syncPaintLeftSettingCompactWidth(ctx, leftSettingView, fullRoot);
+            applyClampedNormalizedSliderPosition(ctx, fullRoot, slider, LibreConfig.get(ctx));
         } catch (Throwable ignored) {}
     }
 
@@ -1144,6 +1150,18 @@ public final class UiUxController {
                                 if (curLp != null && (pls.getWidth() != targetW || curLp.width != targetW)) {
                                     curLp.width = targetW;
                                     pls.setLayoutParams(curLp);
+                                    if (isLandscapeRoot(fr)) {
+                                        pls.post(() -> {
+                                            try {
+                                                if (sSliderDragging || sSliderTempRestored) return;
+                                                ViewGroup s2 = sPromotedSliderRef != null ? sPromotedSliderRef.get() : null;
+                                                ViewGroup fr2 = sPromotedFullRootRef != null ? sPromotedFullRootRef.get() : null;
+                                                if (s2 != null && fr2 != null && s2.getParent() == fr2) {
+                                                    applyClampedNormalizedSliderPosition(ctx, fr2, s2, LibreConfig.get(ctx));
+                                                }
+                                            } catch (Throwable ignored) {}
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -1235,12 +1253,211 @@ public final class UiUxController {
                 : (sPromotedWidth > 0 ? sPromotedWidth : dpToPx(ctx, 44));
         int sliderH = slider.getHeight() > 0 ? slider.getHeight()
                 : (sPromotedHeight > 0 ? sPromotedHeight : dpToPx(ctx, 220));
-        float minX = safeLeft;
-        float maxX = Math.max(minX, rootW - sliderW - safeRight);
-        int topFloorDp = rootW > rootH ? 8 : 36;
+        boolean land = rootW > rootH;
+        int edgePad = dpToPx(ctx, 6);
+        float minX = safeLeft + edgePad;
+        float barBottom = -1f;
+        float barLeft = 0f;
+        float barRight = 0f;
+        try {
+            View rootView = fullRoot.getRootView();
+            if (rootView != null) {
+                int[] rLoc = new int[2];
+                int[] vLoc = new int[2];
+                fullRoot.getLocationInWindow(rLoc);
+                if (land) {
+                    // Keep S/O clear of the real right edge of the left tool column (cutout included).
+                    View leftCol = LibreResourceResolver.findViewByName(rootView, "rl_left_setting_root", 0);
+                    if (leftCol != null && leftCol.isShown() && leftCol.getWidth() > 0) {
+                        leftCol.getLocationInWindow(vLoc);
+                        minX = Math.max(minX, vLoc[0] - rLoc[0] + leftCol.getWidth());
+                    }
+                }
+                View bar = LibreResourceResolver.findViewByName(rootView, NAME_TOP_BAR, FALLBACK_TOP_BAR);
+                if (bar != null && bar.isShown() && bar.getWidth() > 0 && bar.getHeight() > 0) {
+                    bar.getLocationInWindow(vLoc);
+                    barLeft = vLoc[0] - rLoc[0];
+                    barRight = barLeft + bar.getWidth();
+                    barBottom = vLoc[1] - rLoc[1] + bar.getHeight();
+                }
+            }
+        } catch (Throwable ignored) {}
+        float maxX = Math.max(minX, rootW - sliderW - safeRight - edgePad);
+        int topFloorDp = land ? 8 : 36;
         float minY = Math.max(safeTop, dpToPx(ctx, topFloorDp));
         float maxY = Math.max(minY, rootH - sliderH - safeBottom);
-        return new float[]{minX, maxX, minY, maxY};
+        return new float[]{minX, maxX, minY, maxY, barBottom, barLeft, barRight, sliderW};
+    }
+
+    private static boolean isLandscapeRoot(View fullRoot) {
+        return fullRoot != null && fullRoot.getWidth() > fullRoot.getHeight();
+    }
+
+    /**
+     * Android 10+ edge back gesture protection: registers a system gesture exclusion rect ONLY on the
+     * slider itself (never on fullRoot), and only when the slider sits within 40dp of a screen edge.
+     */
+    private static void updateSliderGestureExclusion(ViewGroup fullRoot, View slider) {
+        if (Build.VERSION.SDK_INT < 29 || slider == null) return;
+        try {
+            if (fullRoot == null || slider.getParent() != fullRoot
+                    || slider.getVisibility() != View.VISIBLE
+                    || slider.getWidth() <= 0 || slider.getHeight() <= 0
+                    || fullRoot.getWidth() <= 0) {
+                slider.setSystemGestureExclusionRects(java.util.Collections.<Rect>emptyList());
+                return;
+            }
+            Context ctx = slider.getContext();
+            int edgeZone = dpToPx(ctx, 40);
+            int sliderW = slider.getWidth();
+            int sliderH = slider.getHeight();
+            float left = slider.getX();
+            float right = left + sliderW;
+            boolean nearEdge = left <= edgeZone || (fullRoot.getWidth() - right) <= edgeZone;
+            if (!nearEdge) {
+                slider.setSystemGestureExclusionRects(java.util.Collections.<Rect>emptyList());
+                return;
+            }
+            int centerY = sliderH / 2;
+            View handle = slider.findViewWithTag(TAG_DRAG_HANDLE);
+            if (handle != null && handle.getParent() == slider && handle.getHeight() > 0) {
+                centerY = handle.getTop() + handle.getHeight() / 2;
+            }
+            int rectH = Math.min(dpToPx(ctx, 160), sliderH);
+            int top = (int) clampFloat(centerY - rectH / 2f, 0f, Math.max(0, sliderH - rectH));
+            int bottom = Math.min(sliderH, top + rectH);
+            slider.setSystemGestureExclusionRects(
+                    java.util.Collections.singletonList(new Rect(0, top, sliderW, bottom)));
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Clamps Y for a given X: when the slider horizontally overlaps the top toolbar, its top must
+     * sit below the toolbar bottom, but never so low that the bottom of the slider leaves the screen.
+     * bounds layout: {minX, maxX, minY, maxY, barBottom, barLeft, barRight, sliderW}.
+     */
+    private static float clampSliderY(float[] bounds, float x, float y) {
+        float minY = bounds[2];
+        float maxY = bounds[3];
+        if (bounds[4] > 0f && x < bounds[6] && x + bounds[7] > bounds[5]) {
+            minY = Math.max(minY, bounds[4]);
+        }
+        minY = Math.min(minY, maxY);
+        return clampFloat(y, minY, maxY);
+    }
+
+    private static ViewGroup.LayoutParams createFreeSliderLp(ViewGroup fullRoot, int width) {
+        if (fullRoot instanceof android.widget.RelativeLayout) {
+            android.widget.RelativeLayout.LayoutParams lp =
+                    new android.widget.RelativeLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP);
+            lp.addRule(android.widget.RelativeLayout.ALIGN_PARENT_LEFT);
+            lp.setMargins(0, 0, 0, 0);
+            return lp;
+        }
+        android.widget.FrameLayout.LayoutParams lp =
+                new android.widget.FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.TOP | Gravity.LEFT;
+        lp.setMargins(0, 0, 0, 0);
+        return lp;
+    }
+
+    /**
+     * Places the slider at absolute (x, y) inside fullRoot. translation = target minus the laid-out
+     * anchor (left/top), so left/top are never summed with a stale translation.
+     */
+    private static void placeSliderAt(ViewGroup fullRoot, View slider, float x, float y) {
+        float baseL = fullRoot.getPaddingLeft();
+        float baseT = fullRoot.getPaddingTop();
+        if (slider.getParent() == fullRoot && slider.getWidth() > 0 && !slider.isLayoutRequested()) {
+            baseL = slider.getLeft();
+            baseT = slider.getTop();
+        }
+        slider.setTranslationX(x - baseL);
+        slider.setTranslationY(y - baseT);
+    }
+
+    private static void hookSliderLayoutListener(final ViewGroup slider) {
+        if (slider == null || slider.getTag(TAG_SLIDER_SELF_LISTENER) != null) return;
+        slider.setTag(TAG_SLIDER_SELF_LISTENER, Boolean.TRUE);
+        slider.addOnLayoutChangeListener((sv, l, t, r, b, ol, ot, or, ob) -> {
+            try {
+                ViewGroup cur = sPromotedSliderRef != null ? sPromotedSliderRef.get() : null;
+                ViewGroup fr = sPromotedFullRootRef != null ? sPromotedFullRootRef.get() : null;
+                if (sv != cur || fr == null || cur.getParent() != fr) return;
+                if (sSliderTempRestored || sSliderDragging) return;
+                int sw = r - l;
+                int sh = b - t;
+                if (sw > 0) sPromotedWidth = sw;
+                if (sh > 0) sPromotedHeight = sh;
+                if (sw != (or - ol) || sh != (ob - ot) || l != ol || t != ot) {
+                    Context ctx = fr.getContext();
+                    LibreConfig.init(ctx);
+                    applyClampedNormalizedSliderPosition(ctx, fr, cur, LibreConfig.get(ctx));
+                }
+                updateSliderGestureExclusion(fr, cur);
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    private static void installFullRootSliderListeners(final ViewGroup fullRoot) {
+        if (fullRoot == null) return;
+        if (fullRoot.getTag(TAG_SLIDER_LAYOUT_LISTENER) == null) {
+            fullRoot.setTag(TAG_SLIDER_LAYOUT_LISTENER, Boolean.TRUE);
+            fullRoot.addOnLayoutChangeListener((rv, l, t, r, b, ol, ot, or, ob) -> {
+                try {
+                    if (sSliderTempRestored || sSliderDragging) return;
+                    final ViewGroup curSlider = sPromotedSliderRef != null ? sPromotedSliderRef.get() : null;
+                    if (curSlider == null || curSlider.getParent() != fullRoot) return;
+                    if (curSlider.getWidth() > 0) sPromotedWidth = curSlider.getWidth();
+                    if (curSlider.getHeight() > 0) sPromotedHeight = curSlider.getHeight();
+                    if ((r - l) != (or - ol) || (b - t) != (ob - ot)) {
+                        final Context ctx = fullRoot.getContext();
+                        LibreConfig.init(ctx);
+                        applyClampedNormalizedSliderPosition(ctx, fullRoot, curSlider, LibreConfig.get(ctx));
+                        if (curSlider.getHeight() <= 0) {
+                            curSlider.post(() -> {
+                                try {
+                                    ViewGroup again = sPromotedSliderRef != null ? sPromotedSliderRef.get() : null;
+                                    if (again == curSlider && again.getParent() == fullRoot
+                                            && !sSliderTempRestored && !sSliderDragging) {
+                                        if (again.getHeight() > 0) sPromotedHeight = again.getHeight();
+                                        applyClampedNormalizedSliderPosition(ctx, fullRoot, again, LibreConfig.get(ctx));
+                                    }
+                                } catch (Throwable ignored) {}
+                            });
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            });
+        }
+        if (fullRoot.getTag(TAG_SLIDER_VIS_LISTENER) == null) {
+            fullRoot.setTag(TAG_SLIDER_VIS_LISTENER, Boolean.TRUE);
+            fullRoot.getViewTreeObserver().addOnGlobalLayoutListener(
+                    new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                private WeakReference<ViewGroup> mLastOrigParent = null;
+                private int mLastOrigVis = -1;
+
+                @Override
+                public void onGlobalLayout() {
+                    try {
+                        if (sSliderTempRestored) return;
+                        ViewGroup op = sPromotedOrigParentRef != null ? sPromotedOrigParentRef.get() : null;
+                        ViewGroup sl = sPromotedSliderRef != null ? sPromotedSliderRef.get() : null;
+                        if (op == null || sl == null || sl.getParent() != fullRoot) return;
+                        ViewGroup last = mLastOrigParent != null ? mLastOrigParent.get() : null;
+                        int vis = op.getVisibility();
+                        if (last != op || vis != mLastOrigVis) {
+                            mLastOrigParent = new WeakReference<>(op);
+                            mLastOrigVis = vis;
+                            if (sl.getVisibility() != vis) {
+                                sl.setVisibility(vis);
+                            }
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            });
+        }
     }
 
     private static void applyClampedNormalizedSliderPosition(
@@ -1252,34 +1469,37 @@ public final class UiUxController {
         float maxX = bounds[1];
         float minY = bounds[2];
         float maxY = bounds[3];
+        boolean land = isLandscapeRoot(fullRoot);
 
-        float normX = config != null ? config.getSliderNormX(-1f) : -1f;
-        float normY = config != null ? config.getSliderNormY(-1f) : -1f;
+        float normX = config != null ? config.getSliderNormX(land, -1f) : -1f;
+        float normY = config != null ? config.getSliderNormY(land, -1f) : -1f;
         if (normX < 0f || normY < 0f) {
-            float savedX = config != null ? config.getSliderPosX(-1f) : -1f;
-            float savedY = config != null ? config.getSliderPosY(-1f) : -1f;
-            if (savedX >= 0f && savedY >= 0f) {
-                normX = (savedX - minX) / Math.max(1f, maxX - minX);
-                normY = (savedY - minY) / Math.max(1f, maxY - minY);
+            // No dedicated position for this orientation yet: inherit the ratio from the other one.
+            float otherX = config != null ? config.getSliderNormX(!land, -1f) : -1f;
+            float otherY = config != null ? config.getSliderNormY(!land, -1f) : -1f;
+            if (otherX >= 0f && otherY >= 0f) {
+                normX = otherX;
+                normY = otherY;
             } else {
-                float baseX = sPromotedStartX >= 0f ? sPromotedStartX : minX;
-                float baseY = sPromotedStartY >= 0f ? sPromotedStartY : minY;
-                normX = (baseX - minX) / Math.max(1f, maxX - minX);
-                normY = (baseY - minY) / Math.max(1f, maxY - minY);
+                float savedX = (!land && config != null) ? config.getSliderPosX(-1f) : -1f;
+                float savedY = (!land && config != null) ? config.getSliderPosY(-1f) : -1f;
+                if (savedX >= 0f && savedY >= 0f) {
+                    normX = (savedX - minX) / Math.max(1f, maxX - minX);
+                    normY = (savedY - minY) / Math.max(1f, maxY - minY);
+                } else {
+                    float baseX = sPromotedStartX >= 0f ? sPromotedStartX : minX;
+                    float baseY = sPromotedStartY >= 0f ? sPromotedStartY : minY;
+                    normX = (baseX - minX) / Math.max(1f, maxX - minX);
+                    normY = (baseY - minY) / Math.max(1f, maxY - minY);
+                }
             }
         }
         normX = clampFloat(normX, 0f, 1f);
         normY = clampFloat(normY, 0f, 1f);
         float targetX = clampFloat(minX + normX * (maxX - minX), minX, maxX);
-        float targetY = clampFloat(minY + normY * (maxY - minY), minY, maxY);
-
-        if (slider.getParent() == fullRoot && slider.getWidth() > 0 && !slider.isLayoutRequested()) {
-            slider.setX(targetX);
-            slider.setY(targetY);
-        } else {
-            slider.setTranslationX(targetX);
-            slider.setTranslationY(targetY);
-        }
+        float targetY = clampSliderY(bounds, targetX, minY + normY * (maxY - minY));
+        placeSliderAt(fullRoot, slider, targetX, targetY);
+        updateSliderGestureExclusion(fullRoot, slider);
     }
 
     private static void attachFloatingSlidersWithRetry(
@@ -1370,21 +1590,41 @@ public final class UiUxController {
                 private float downRawX, downRawY;
                 private float startX, startY;
                 private boolean isDragging = false;
+                private float[] mBounds = null;
+
+                private void endGesture() {
+                    isDragging = false;
+                    sSliderDragging = false;
+                    mBounds = null;
+                }
 
                 @Override
                 public boolean onTouch(View v, MotionEvent event) {
-                    switch (event.getActionMasked()) {
+                    // Always resolve the live promoted slider (never a stale captured container),
+                    // because rotation can swap seekbars_view <-> rl_left_setting_root_seekbar.
+                    ViewGroup target = sPromotedSliderRef != null ? sPromotedSliderRef.get() : null;
+                    ViewGroup fullRoot = sPromotedFullRootRef != null ? sPromotedFullRootRef.get() : null;
+                    boolean valid = target != null && fullRoot != null
+                            && target.getParent() == fullRoot
+                            && isViewDescendantOf(target, v);
+                    int action = event.getActionMasked();
+                    switch (action) {
                         case MotionEvent.ACTION_DOWN:
-                            ViewParent p = container.getParent();
+                            endGesture();
+                            if (!valid) return true;
+                            ViewParent p = target.getParent();
                             if (p != null) p.requestDisallowInterceptTouchEvent(true);
                             downRawX = event.getRawX();
                             downRawY = event.getRawY();
-                            startX = container.getX();
-                            startY = container.getY();
-                            isDragging = false;
+                            startX = target.getX();
+                            startY = target.getY();
                             return true;
 
                         case MotionEvent.ACTION_MOVE: {
+                            if (!valid) {
+                                if (isDragging) endGesture();
+                                return true;
+                            }
                             float dx = event.getRawX() - downRawX;
                             float dy = event.getRawY() - downRawY;
                             if (!isDragging) {
@@ -1393,42 +1633,34 @@ public final class UiUxController {
                                 }
                                 isDragging = true;
                                 sSliderDragging = true;
+                                mBounds = computeSliderSafeBounds(activity, fullRoot, target);
                             }
-                            float newX = startX + dx;
-                            float newY = startY + dy;
-                            if (container.getParent() instanceof ViewGroup) {
-                                ViewGroup parent = (ViewGroup) container.getParent();
-                                float[] bounds = computeSliderSafeBounds(activity, parent, container);
-                                newX = clampFloat(newX, bounds[0], bounds[1]);
-                                newY = clampFloat(newY, bounds[2], bounds[3]);
+                            if (mBounds == null) {
+                                mBounds = computeSliderSafeBounds(activity, fullRoot, target);
                             }
-                            container.setX(newX);
-                            container.setY(newY);
+                            float newX = clampFloat(startX + dx, mBounds[0], mBounds[1]);
+                            float newY = clampSliderY(mBounds, newX, startY + dy);
+                            placeSliderAt(fullRoot, target, newX, newY);
                             return true;
                         }
 
                         case MotionEvent.ACTION_UP:
                         case MotionEvent.ACTION_CANCEL:
-                            ViewParent pUp = container.getParent();
-                            if (pUp != null) pUp.requestDisallowInterceptTouchEvent(false);
-                            if (isDragging) {
-                                float curX = container.getX();
-                                float curY = container.getY();
-                                if (pUp instanceof ViewGroup) {
-                                    ViewGroup parent = (ViewGroup) pUp;
-                                    float[] bounds = computeSliderSafeBounds(activity, parent, container);
-                                    curX = clampFloat(curX, bounds[0], bounds[1]);
-                                    curY = clampFloat(curY, bounds[2], bounds[3]);
-                                    container.setX(curX);
-                                    container.setY(curY);
-                                    float normX = clampFloat((curX - bounds[0]) / Math.max(1f, bounds[1] - bounds[0]), 0f, 1f);
-                                    float normY = clampFloat((curY - bounds[2]) / Math.max(1f, bounds[3] - bounds[2]), 0f, 1f);
-                                    config.setSliderNormPos(normX, normY);
-                                }
-                                config.setSliderPos(curX, curY);
-                                isDragging = false;
-                                sSliderDragging = false;
+                            if (valid) {
+                                ViewParent pUp = target.getParent();
+                                if (pUp != null) pUp.requestDisallowInterceptTouchEvent(false);
                             }
+                            if (isDragging && valid) {
+                                float[] bounds = computeSliderSafeBounds(activity, fullRoot, target);
+                                float curX = clampFloat(target.getX(), bounds[0], bounds[1]);
+                                float curY = clampSliderY(bounds, curX, target.getY());
+                                placeSliderAt(fullRoot, target, curX, curY);
+                                float normX = clampFloat((curX - bounds[0]) / Math.max(1f, bounds[1] - bounds[0]), 0f, 1f);
+                                float normY = clampFloat((curY - bounds[2]) / Math.max(1f, bounds[3] - bounds[2]), 0f, 1f);
+                                config.setSliderNormPos(isLandscapeRoot(fullRoot), normX, normY);
+                                updateSliderGestureExclusion(fullRoot, target);
+                            }
+                            endGesture();
                             return true;
                     }
                     return false;
@@ -1517,60 +1749,19 @@ public final class UiUxController {
                                 sSliderTempRestored = false;
 
                                 origParent.removeView(container);
-                                ViewGroup.MarginLayoutParams freeLp = (fullRoot instanceof android.widget.RelativeLayout)
-                                        ? new android.widget.RelativeLayout.LayoutParams(finalW, ViewGroup.LayoutParams.WRAP_CONTENT)
-                                        : new android.widget.FrameLayout.LayoutParams(finalW, ViewGroup.LayoutParams.WRAP_CONTENT);
-                                container.setLayoutParams(freeLp);
+                                container.setLayoutParams(createFreeSliderLp(fullRoot, finalW));
                                 fullRoot.addView(container);
 
                                 applyClampedNormalizedSliderPosition(activity, fullRoot, container, config);
                                 syncPaintLeftSettingCompactWidth(activity, null, fullRoot);
 
-                                if (fullRoot.getTag(TAG_SLIDER_LAYOUT_LISTENER) == null) {
-                                    fullRoot.setTag(TAG_SLIDER_LAYOUT_LISTENER, Boolean.TRUE);
-                                    fullRoot.addOnLayoutChangeListener((rv, l, t, r, b, ol, ot, or, ob) -> {
-                                        if (sSliderTempRestored || sSliderDragging || container.getParent() != fullRoot) return;
-                                        int newRw = r - l;
-                                        int newRh = b - t;
-                                        int oldRw = or - ol;
-                                        int oldRh = ob - ot;
-                                        if (container.getWidth() > 0) sPromotedWidth = container.getWidth();
-                                        if (container.getHeight() > 0) sPromotedHeight = container.getHeight();
-                                        if (newRw != oldRw || newRh != oldRh) {
-                                            applyClampedNormalizedSliderPosition(activity, fullRoot, container, config);
-                                        }
-                                    });
-                                }
-                                container.addOnLayoutChangeListener((sv, l, t, r, b, ol, ot, or, ob) -> {
-                                    if (sSliderTempRestored || sSliderDragging || container.getParent() != fullRoot) return;
-                                    int sh = b - t;
-                                    int sw = r - l;
-                                    if (sw > 0) sPromotedWidth = sw;
-                                    if (sh > 0) sPromotedHeight = sh;
-                                    if ((r - l) != (or - ol) || (b - t) != (ob - ot) || l != ol || t != ot) {
-                                        applyClampedNormalizedSliderPosition(activity, fullRoot, container, config);
-                                    }
-                                });
+                                installFullRootSliderListeners(fullRoot);
+                                hookSliderLayoutListener(container);
 
                                 final int initVis = origParent.getVisibility();
                                 if (container.getVisibility() != initVis) {
                                     container.setVisibility(initVis);
                                 }
-                                origParent.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-                                    private int mLastOrigVis = initVis;
-
-                                    @Override
-                                    public void onGlobalLayout() {
-                                        if (sSliderTempRestored) return;
-                                        int targetVis = origParent.getVisibility();
-                                        if (targetVis != mLastOrigVis) {
-                                            mLastOrigVis = targetVis;
-                                            if (container.getVisibility() != targetVis) {
-                                                container.setVisibility(targetVis);
-                                            }
-                                        }
-                                    }
-                                });
                             }
                         } catch (Throwable ignored) {}
                     });

@@ -64,6 +64,8 @@ public final class LibreConfig {
     public static final String KEY_SLIDER_POS_Y = "libre_slider_pos_y";
     public static final String KEY_SLIDER_NORM_X = "libre_slider_norm_x";
     public static final String KEY_SLIDER_NORM_Y = "libre_slider_norm_y";
+    public static final String KEY_SLIDER_NORM_X_LAND = "libre_slider_norm_x_land";
+    public static final String KEY_SLIDER_NORM_Y_LAND = "libre_slider_norm_y_land";
     public static final String KEY_CLEAN_SPEEDPAINT = "libre_clean_speedpaint";
     public static final String KEY_PUBLIC_STORAGE = "storage_transparency_mode";
     public static final String KEY_CANVAS_HSJ_PATH_ROW = "libre_canvas_hsj_path_row";
@@ -207,8 +209,26 @@ public final class LibreConfig {
     }
 
     public void setSliderNormPos(float normX, float normY) {
+        setSliderNormPos(false, normX, normY);
+    }
+
+    /** Orientation aware normalized slider position (portrait keeps the legacy keys). */
+    public float getSliderNormX(boolean isLandscape, float defaultVal) {
+        if (mPrefs == null) return defaultVal;
+        return mPrefs.getFloat(isLandscape ? KEY_SLIDER_NORM_X_LAND : KEY_SLIDER_NORM_X, defaultVal);
+    }
+
+    public float getSliderNormY(boolean isLandscape, float defaultVal) {
+        if (mPrefs == null) return defaultVal;
+        return mPrefs.getFloat(isLandscape ? KEY_SLIDER_NORM_Y_LAND : KEY_SLIDER_NORM_Y, defaultVal);
+    }
+
+    public void setSliderNormPos(boolean isLandscape, float normX, float normY) {
         if (mPrefs != null) {
-            mPrefs.edit().putFloat(KEY_SLIDER_NORM_X, normX).putFloat(KEY_SLIDER_NORM_Y, normY).apply();
+            mPrefs.edit()
+                    .putFloat(isLandscape ? KEY_SLIDER_NORM_X_LAND : KEY_SLIDER_NORM_X, normX)
+                    .putFloat(isLandscape ? KEY_SLIDER_NORM_Y_LAND : KEY_SLIDER_NORM_Y, normY)
+                    .apply();
         }
     }
 
