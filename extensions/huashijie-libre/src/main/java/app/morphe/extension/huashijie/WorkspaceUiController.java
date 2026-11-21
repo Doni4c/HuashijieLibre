@@ -20,7 +20,6 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -78,6 +77,10 @@ public final class WorkspaceUiController {
     private static final int TAG_EXIT_ORIG_PAD_TOP = 0x7e09863f;
     private static final int TAG_ORIG_TOOL_GRID_W = 0x7e098641;
     private static final int TAG_ORIG_TOOL_GRID_RV_PAD_R = 0x7e098650;
+    private static final int TAG_REF_LABEL_MEASURE_KEY = 0x7e098651;
+    private static final int TAG_REF_LABEL_MEASURE_VAL = 0x7e098652;
+    private static final int TAG_REF_LABEL_LAST_PW = 0x7e098653;
+    private static final int TAG_REF_LABEL_LAST_KEY = 0x7e098654;
 
     private static final Pattern PATTERN_DYNAMIC_NUMERIC =
             Pattern.compile("^[+-]?\\d+(?:[.,]\\d+)?\\s*(?:%|px|dp|sp|fps|pt|mm|cm|x|X)?$");
@@ -161,11 +164,19 @@ public final class WorkspaceUiController {
         if (nsvSetting != null && nsvSetting.getVisibility() == View.VISIBLE) visMask |= 4;
         View bgPaper = findView(root, "tv_paper_name", 0x7f090ed3);
         if (bgPaper != null && bgPaper.isShown()) visMask |= 8;
-        int h = (visMask * 31 + root.getWidth()) * 31 + root.getHeight();
+        int w = root.getWidth();
+        int hPx = root.getHeight();
+        int sizeBucket = (w > 0 && hPx > 0) ? (w > hPx ? 2 : 1) : 0;
+        int h = visMask * 31 + sizeBucket;
         if (root instanceof ViewGroup) {
             h = h * 31 + ((ViewGroup) root).getChildCount();
         }
         return h;
+    }
+
+    public static int computePopupSizeHash(View root) {
+        if (root == null) return 0;
+        return root.getWidth() * 31 + root.getHeight();
     }
 
     private static boolean setSingleLineIfChanged(TextView tv, boolean singleLine) {
@@ -196,8 +207,16 @@ public final class WorkspaceUiController {
     }
 
     private static boolean setGravityIfChanged(TextView tv, int gravity) {
-        if (tv != null && tv.getGravity() != gravity) {
-            tv.setGravity(gravity);
+        if (tv == null) return false;
+        int normalized = gravity;
+        if ((normalized & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) == 0) {
+            normalized |= Gravity.START;
+        }
+        if ((normalized & Gravity.VERTICAL_GRAVITY_MASK) == 0) {
+            normalized |= Gravity.TOP;
+        }
+        if (tv.getGravity() != normalized) {
+            tv.setGravity(normalized);
             return true;
         }
         return false;
@@ -3271,7 +3290,7 @@ public final class WorkspaceUiController {
                   .append(" gap=").append(line.getTop() - maxLblBottom).append("]");
             }
             String[] scrollNames = new String[] { "nsv_canvas", "nsv_setting", "scroll_view" };
-            int[] scrollIds = new int[] { 0x7f0909aa, 0x7f0909ac, 0 };
+            int[] scrollIds = new int[] { 0x7f090a13, 0x7f090a17, 0 };
             for (int i = 0; i < scrollNames.length; i++) {
                 View sv = findView(root, scrollNames[i], scrollIds[i]);
                 if (sv != null && sv.getVisibility() == View.VISIBLE) {
@@ -4234,8 +4253,9 @@ public final class WorkspaceUiController {
         }
     }
 
-    public static void optimizeReferenceFloatingWindow(View root) {
-        if (root == null) return;
+    public static boolean optimizeReferenceFloatingWindow(View root) {
+        if (root == null) return false;
+        boolean mutated = false;
         try {
             if (sIdRefToggleView == -1) {
                 String pkg = root.getContext().getPackageName();
@@ -4248,19 +4268,29 @@ public final class WorkspaceUiController {
                 sIdRefTvPic = res.getIdentifier("tv_pic", "id", pkg);
                 sIdRefTvCanvas = res.getIdentifier("tv_canvas", "id", pkg);
             }
-            if (sIdRefToggleView == 0 || sIdRefBgPic == 0 || sIdRefBgCanvas == 0) return;
+            if (sIdRefToggleView == 0 || sIdRefBgPic == 0 || sIdRefBgCanvas == 0) return false;
 
             View toggleView = root.findViewById(sIdRefToggleView);
-            View bgPic = root.findViewById(sIdRefBgPic);
-            View bgCanvas = root.findViewById(sIdRefBgCanvas);
-            if (!(toggleView instanceof LinearLayout) || bgPic == null || bgCanvas == null) {
-                return;
+            if (!(toggleView instanceof LinearLayout) || toggleView.getVisibility() != View.VISIBLE) {
+                return false;
+            }
+            View bgPic = toggleView.findViewById(sIdRefBgPic);
+            View bgCanvas = toggleView.findViewById(sIdRefBgCanvas);
+            if (bgPic == null || bgCanvas == null) {
+                return false;
             }
 
             float density = root.getResources().getDisplayMetrics().density;
             LinearLayout llToggle = (LinearLayout) toggleView;
-            llToggle.setWeightSum(2.0f);
-            llToggle.setGravity(Gravity.CENTER_VERTICAL);
+            if (Math.abs(llToggle.getWeightSum() - 2.0f) > 0.01f) {
+                llToggle.setWeightSum(2.0f);
+                mutated = true;
+            }
+            final int targetToggleGravity = Gravity.START | Gravity.CENTER_VERTICAL;
+            if (llToggle.getGravity() != targetToggleGravity) {
+                llToggle.setGravity(targetToggleGravity);
+                mutated = true;
+            }
             if (llToggle.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
                 ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) llToggle.getLayoutParams();
                 int sideMargin = Math.round(4 * density);
@@ -4279,7 +4309,10 @@ public final class WorkspaceUiController {
                     mlp.setMarginEnd(sideMargin);
                     changed = true;
                 }
-                if (changed) llToggle.setLayoutParams(mlp);
+                if (changed) {
+                    llToggle.setLayoutParams(mlp);
+                    mutated = true;
+                }
             }
 
             View[] tabs = new View[]{bgPic, bgCanvas};
@@ -4287,10 +4320,15 @@ public final class WorkspaceUiController {
             int tabMargin = Math.round(1 * density);
             for (View tab : tabs) {
                 if (tab instanceof LinearLayout) {
-                    ((LinearLayout) tab).setGravity(Gravity.CENTER);
+                    LinearLayout tabLl = (LinearLayout) tab;
+                    if (tabLl.getGravity() != Gravity.CENTER) {
+                        tabLl.setGravity(Gravity.CENTER);
+                        mutated = true;
+                    }
                 }
                 if (tab.getPaddingLeft() != tabPadH || tab.getPaddingRight() != tabPadH) {
                     tab.setPadding(tabPadH, tab.getPaddingTop(), tabPadH, tab.getPaddingBottom());
+                    mutated = true;
                 }
                 if (tab.getLayoutParams() instanceof LinearLayout.LayoutParams) {
                     LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) tab.getLayoutParams();
@@ -4310,15 +4348,20 @@ public final class WorkspaceUiController {
                         lp.setMarginEnd(tabMargin);
                         changed = true;
                     }
-                    if (changed) tab.setLayoutParams(lp);
+                    if (changed) {
+                        tab.setLayoutParams(lp);
+                        mutated = true;
+                    }
                 }
             }
 
-            int[] ivIds = new int[]{sIdRefIvPic, sIdRefIvCanvas};
+            View[] ivViews = new View[]{
+                sIdRefIvPic != 0 ? bgPic.findViewById(sIdRefIvPic) : null,
+                sIdRefIvCanvas != 0 ? bgCanvas.findViewById(sIdRefIvCanvas) : null
+            };
             int iconSize = Math.round(18 * density);
             int iconGap = Math.round(2 * density);
-            for (int ivId : ivIds) {
-                View iv = ivId != 0 ? root.findViewById(ivId) : null;
+            for (View iv : ivViews) {
                 if (iv != null && iv.getLayoutParams() instanceof LinearLayout.LayoutParams) {
                     LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) iv.getLayoutParams();
                     boolean changed = false;
@@ -4335,13 +4378,18 @@ public final class WorkspaceUiController {
                         lp.setMarginEnd(iconGap);
                         changed = true;
                     }
-                    if (changed) iv.setLayoutParams(lp);
+                    if (changed) {
+                        iv.setLayoutParams(lp);
+                        mutated = true;
+                    }
                 }
             }
 
-            int[] tvIds = new int[]{sIdRefTvPic, sIdRefTvCanvas};
-            for (int tvId : tvIds) {
-                View tvRaw = tvId != 0 ? root.findViewById(tvId) : null;
+            View[] tvViews = new View[]{
+                sIdRefTvPic != 0 ? bgPic.findViewById(sIdRefTvPic) : null,
+                sIdRefTvCanvas != 0 ? bgCanvas.findViewById(sIdRefTvCanvas) : null
+            };
+            for (View tvRaw : tvViews) {
                 if (tvRaw instanceof TextView) {
                     TextView tv = (TextView) tvRaw;
                     Object origRefObj = tv.getTag(TAG_REF_LABEL_ORIG_PX);
@@ -4352,49 +4400,75 @@ public final class WorkspaceUiController {
                         origRefPx = tv.getTextSize();
                         tv.setTag(TAG_REF_LABEL_ORIG_PX, origRefPx);
                     }
-                    setSingleLineIfChanged(tv, true);
-                    setMaxLinesIfChanged(tv, 1);
-                    setEllipsizeIfChanged(tv, TextUtils.TruncateAt.END);
-                    TranslationEngine.ensureSafeVietnameseFontPadding(tv);
-                    setGravityIfChanged(tv, Gravity.CENTER_VERTICAL);
+                    mutated |= setSingleLineIfChanged(tv, true);
+                    mutated |= setMaxLinesIfChanged(tv, 1);
+                    mutated |= setEllipsizeIfChanged(tv, TextUtils.TruncateAt.END);
+                    mutated |= TranslationEngine.ensureSafeVietnameseFontPadding(tv);
+                    mutated |= setGravityIfChanged(tv, Gravity.START | Gravity.CENTER_VERTICAL);
                     if (origRefPx > 0f) {
-                        float targetRefPx = origRefPx;
                         CharSequence tvCs = tv.getText();
                         ViewParent tvParent = tv.getParent();
                         if (tvCs != null && tvCs.length() > 0 && tvParent instanceof View) {
                             View parentView = (View) tvParent;
                             int pw = parentView.getWidth();
                             if (pw > 0) {
-                                int availRefW = pw - parentView.getPaddingLeft() - parentView.getPaddingRight()
-                                        - iconSize - iconGap - Math.round(6 * density);
-                                if (availRefW > 0) {
-                                    TextPaint refPaint = new TextPaint(tv.getPaint());
-                                    refPaint.setTextSize(origRefPx);
-                                    float measuredRefW = refPaint.measureText(tvCs.toString());
-                                    if (measuredRefW > availRefW) {
-                                        float minRefPx = Math.max(origRefPx * 0.85f, 10.0f * density);
-                                        targetRefPx = Math.max(minRefPx, origRefPx * ((float) availRefW / Math.max(1f, measuredRefW)));
+                                String textStr = tvCs.toString();
+                                String measureKey = textStr + "|" + Float.floatToRawIntBits(origRefPx)
+                                        + "|" + System.identityHashCode(tv.getTypeface());
+                                Object prevPw = tv.getTag(TAG_REF_LABEL_LAST_PW);
+                                Object prevKey = tv.getTag(TAG_REF_LABEL_LAST_KEY);
+                                if (!(prevPw instanceof Integer
+                                        && ((Integer) prevPw).intValue() == pw
+                                        && measureKey.equals(prevKey))) {
+                                    float targetRefPx = origRefPx;
+                                    int availRefW = pw - parentView.getPaddingLeft() - parentView.getPaddingRight()
+                                            - iconSize - iconGap - Math.round(6 * density);
+                                    if (availRefW > 0) {
+                                        float measuredRefW;
+                                        Object cachedMeasureKey = tv.getTag(TAG_REF_LABEL_MEASURE_KEY);
+                                        Object cachedMeasureVal = tv.getTag(TAG_REF_LABEL_MEASURE_VAL);
+                                        if (measureKey.equals(cachedMeasureKey) && cachedMeasureVal instanceof Float) {
+                                            measuredRefW = (Float) cachedMeasureVal;
+                                        } else {
+                                            TextPaint refPaint = new TextPaint(tv.getPaint());
+                                            refPaint.setTextSize(origRefPx);
+                                            measuredRefW = refPaint.measureText(textStr);
+                                            tv.setTag(TAG_REF_LABEL_MEASURE_KEY, measureKey);
+                                            tv.setTag(TAG_REF_LABEL_MEASURE_VAL, Float.valueOf(measuredRefW));
+                                        }
+                                        if (measuredRefW > availRefW) {
+                                            float minRefPx = Math.max(origRefPx * 0.85f, 10.0f * density);
+                                            targetRefPx = Math.max(minRefPx, origRefPx * ((float) availRefW / Math.max(1f, measuredRefW)));
+                                        }
+                                    } else {
+                                        targetRefPx = Math.max(origRefPx * 0.85f, 10.0f * density);
                                     }
+                                    if (Math.abs(tv.getTextSize() - targetRefPx) >= 0.5f) {
+                                        tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetRefPx);
+                                        mutated = true;
+                                    }
+                                    tv.setTag(TAG_REF_LABEL_LAST_PW, Integer.valueOf(pw));
+                                    tv.setTag(TAG_REF_LABEL_LAST_KEY, measureKey);
                                 }
                             }
-                        }
-                        if (Math.abs(tv.getTextSize() - targetRefPx) >= 0.5f) {
-                            tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetRefPx);
                         }
                     }
                     if (tv.getPaddingLeft() != 0 || tv.getPaddingRight() != 0) {
                         tv.setPadding(0, tv.getPaddingTop(), 0, tv.getPaddingBottom());
+                        mutated = true;
                     }
                     if (tv.getLayoutParams() instanceof ViewGroup.LayoutParams) {
                         ViewGroup.LayoutParams lp = tv.getLayoutParams();
                         if (lp.width != ViewGroup.LayoutParams.WRAP_CONTENT) {
                             lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
                             tv.setLayoutParams(lp);
+                            mutated = true;
                         }
                     }
                 }
             }
         } catch (Throwable ignored) {}
+        return mutated;
     }
 
     /**
@@ -4458,31 +4532,20 @@ public final class WorkspaceUiController {
 
     // State tracking for Reference Window Vertical Flip
     private static volatile boolean sCanvasVertiFlip = false;
-    private static volatile boolean sPicRefVertiFlip = false;
     private static final String TAG_FLIP_VERTI_BTN = "tag_ref_flip_verti";
 
     public static boolean isCanvasVertiFlip() {
         return sCanvasVertiFlip;
     }
 
-    public static boolean isPicRefVertiFlip() {
-        return sPicRefVertiFlip;
-    }
-
     public static void setCanvasVertiFlip(boolean flip) {
         sCanvasVertiFlip = flip;
-    }
-
-    public static void setPicRefVertiFlip(boolean flip) {
-        sPicRefVertiFlip = flip;
     }
 
     // Cached reflection members for high-frequency GL texture buffer draws.
     private static volatile Class<?> sCachedNavClass = null;
     private static volatile Field sFieldGlTool = null;
     private static volatile Field sFieldHoriFlip = null;
-    private static volatile Field sFieldPicRefGlTool = null;
-    private static volatile Field sFieldPicRefFlipX = null;
     private static volatile Class<?> sCachedGlToolClass = null;
     private static volatile Method sMethodGlVerti = null;
     private static volatile Method sMethodGlHori = null;
@@ -4492,8 +4555,6 @@ public final class WorkspaceUiController {
         if (sCachedNavClass == navClass) return;
         sFieldGlTool = LibreResourceResolver.findField(navClass, "mGLTool", null, null);
         sFieldHoriFlip = LibreResourceResolver.findField(navClass, "mHoriFlip", null, null);
-        sFieldPicRefGlTool = LibreResourceResolver.findField(navClass, "mPicRefGLTool", null, null);
-        sFieldPicRefFlipX = LibreResourceResolver.findField(navClass, "mPicRefFlipX", null, null);
         sCachedNavClass = navClass;
     }
 
@@ -4530,35 +4591,11 @@ public final class WorkspaceUiController {
         }
     }
 
-    public static java.nio.FloatBuffer getPicRefTextureBuffer(View navView) {
-        if (navView == null) return null;
-        try {
-            ensureNavReflection(navView.getClass());
-            if (sFieldPicRefGlTool == null || sFieldPicRefFlipX == null) return null;
-            Object glToolObj = sFieldPicRefGlTool.get(navView);
-            boolean flipX = sFieldPicRefFlipX.getBoolean(navView);
-            return getPicRefTextureBuffer(glToolObj, flipX);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
     public static java.nio.FloatBuffer getCanvasTextureBuffer(Object glToolObj, boolean horiFlip) {
         if (glToolObj == null) return null;
         try {
             ensureGlToolMethods(glToolObj.getClass());
             Method m = sCanvasVertiFlip ? sMethodGlVerti : (horiFlip ? sMethodGlHori : sMethodGlNormal);
-            return m != null ? (java.nio.FloatBuffer) m.invoke(glToolObj) : null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    public static java.nio.FloatBuffer getPicRefTextureBuffer(Object glToolObj, boolean flipX) {
-        if (glToolObj == null) return null;
-        try {
-            ensureGlToolMethods(glToolObj.getClass());
-            Method m = sPicRefVertiFlip ? sMethodGlVerti : (flipX ? sMethodGlHori : sMethodGlNormal);
             return m != null ? (java.nio.FloatBuffer) m.invoke(glToolObj) : null;
         } catch (Throwable ignored) {
             return null;
@@ -4858,66 +4895,6 @@ public final class WorkspaceUiController {
                 }
             }
         } catch (Throwable ignored) {}
-    }
-
-    /**
-     * Determines whether a touch event is within the reference window header drag area.
-     * Treats any touch in the top header bar area (outside close and setting buttons)
-     * as a draggable area, ensuring smooth and uninterrupted moving of the reference window.
-     */
-    public static boolean inReferenceDragRect(View parentRefView, MotionEvent event) {
-        if (parentRefView == null || event == null) return false;
-        try {
-            float rawX = event.getRawX();
-            float rawY = event.getRawY();
-
-            View headView = findView(parentRefView, "head_view", 0x7f0905be);
-            if (headView == null) {
-                headView = findView(parentRefView, "frame_content_version", 0x7f090567);
-            }
-            View closeBtn = findView(parentRefView, "iv_close", 0x7f090687);
-            View settingBtn = findView(parentRefView, "iv_setting", 0x7f090712);
-            if (settingBtn == null) {
-                settingBtn = findView(parentRefView, "iv_move_tag", 0x7f0906de);
-            }
-
-            int[] loc = new int[2];
-            View header = headView != null ? headView : parentRefView;
-            header.getLocationOnScreen(loc);
-
-            int left = loc[0];
-            int top = loc[1];
-            int right = left + header.getWidth();
-            int bottom = top + (headView != null ? header.getHeight() : (int) (48 * parentRefView.getResources().getDisplayMetrics().density));
-
-            if (rawX < left || rawX > right || rawY < top || rawY > bottom) {
-                return false;
-            }
-
-            // Exclude close button if clicked directly
-            if (closeBtn != null && closeBtn.getVisibility() == View.VISIBLE) {
-                int[] cLoc = new int[2];
-                closeBtn.getLocationOnScreen(cLoc);
-                if (rawX >= cLoc[0] && rawX <= cLoc[0] + closeBtn.getWidth() &&
-                    rawY >= cLoc[1] && rawY <= cLoc[1] + closeBtn.getHeight()) {
-                    return false;
-                }
-            }
-
-            // Exclude setting button if clicked directly
-            if (settingBtn != null && settingBtn.getVisibility() == View.VISIBLE) {
-                int[] sLoc = new int[2];
-                settingBtn.getLocationOnScreen(sLoc);
-                if (rawX >= sLoc[0] && rawX <= sLoc[0] + settingBtn.getWidth() &&
-                    rawY >= sLoc[1] && rawY <= sLoc[1] + settingBtn.getHeight()) {
-                    return false;
-                }
-            }
-
-            return true;
-        } catch (Throwable ignored) {
-            return false;
-        }
     }
 
     /**
@@ -5418,12 +5395,5 @@ public final class WorkspaceUiController {
                 }
             }
         } catch (Throwable ignored) {}
-    }
-
-    /**
-     * Reserved entry point for reference settings popup layout customization.
-     */
-    public static void optimizeLinmoSetting(View root, Activity activity) {
-        // Reverted to vanilla as requested
     }
 }

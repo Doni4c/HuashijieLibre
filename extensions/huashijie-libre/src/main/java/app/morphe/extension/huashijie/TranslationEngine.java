@@ -161,14 +161,14 @@ public final class TranslationEngine {
     private static volatile Object sWmgInstance = null;
     private static volatile Field sWmgViewsField = null;
     private static volatile boolean sSyncingWindows = false;
-    private static volatile boolean sLayoutDirty = true;
+    private static volatile int sLayoutDirtyEpoch = 1;
     private static volatile int sProtectedSdcardRootId = 0x7f110803;
     private static volatile int sProtectedAlbumFolderId = 0x7f110077;
     private static volatile boolean sProtectedIdsResolved = false;
     private static Context sAppContext;
 
     public static void markLayoutDirty() {
-        sLayoutDirty = true;
+        sLayoutDirtyEpoch++;
     }
 
     private static long sLastLoadedFileMod = 0;
@@ -2850,6 +2850,56 @@ public final class TranslationEngine {
         } catch (Throwable ignored) {}
     }
 
+    private static boolean hasUntrackedVisibleWindowRoot() {
+        try {
+            if (!sWmgResolved) {
+                getWindowManagerViews();
+            }
+            if (sWmgInstance != null && sWmgViewsField != null) {
+                List<?> views = (List<?>) sWmgViewsField.get(sWmgInstance);
+                if (views != null) {
+                    int count = views.size();
+                    for (int i = 0; i < count; i++) {
+                        Object item = views.get(i);
+                        if (item instanceof View) {
+                            View wRoot = (View) item;
+                            if (wRoot.getVisibility() == View.VISIBLE
+                                    && wRoot.getTag(TAG_KEY_OBSERVED) == null) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static int computeDecorStructuralHash(View root) {
+        return computeDecorStructuralHashNode(root, 0);
+    }
+
+    private static int computeDecorStructuralHashNode(View v, int depth) {
+        if (v == null || depth > 20) return 0;
+        int vis = v.getVisibility();
+        if (vis == View.GONE) return 8;
+        if ("libre_settings_root".equals(v.getTag())) return 0;
+        int h = ((vis + 1) * 31) + v.getId();
+        if (v instanceof ViewGroup) {
+            if (v instanceof android.widget.AbsListView
+                    || v.getClass().getName().endsWith("RecyclerView")) {
+                return h * 31 + 1;
+            }
+            ViewGroup vg = (ViewGroup) v;
+            int childCount = vg.getChildCount();
+            h = h * 31 + childCount;
+            for (int i = 0; i < childCount; i++) {
+                h = h * 31 + computeDecorStructuralHashNode(vg.getChildAt(i), depth + 1);
+            }
+        }
+        return h;
+    }
+
     private static void attachUntrackedWindowRoots() {
         if (sSyncingWindows) return;
         sSyncingWindows = true;
@@ -2884,7 +2934,7 @@ public final class TranslationEngine {
         }
         if (canvasPolish) {
             changed |= WorkspaceUiController.optimizeCanvasToolBars(rootView);
-            WorkspaceUiController.optimizeReferenceFloatingWindow(rootView);
+            changed |= WorkspaceUiController.optimizeReferenceFloatingWindow(rootView);
             WorkspaceUiController.polishBrushInfoRow(rootView);
             WorkspaceUiController.polishFastKeyHostCardHeader(rootView);
         }
@@ -3005,7 +3055,7 @@ public final class TranslationEngine {
                             v.removeOnAttachStateChangeListener(this);
                             v.setTag(TAG_KEY_ATTACH_LISTENER, null);
                             applyFullLayoutPass(v);
-                            sLayoutDirty = true;
+                            markLayoutDirty();
                             installLiveViewTreeObserver(v);
                         }
 
@@ -3027,31 +3077,37 @@ public final class TranslationEngine {
                     && winRoot != rootView
                     && Boolean.TRUE.equals(winRoot.getTag(TAG_KEY_OBSERVED))
                     && !isPopupOrDialogRoot(rootView)) {
-                sLayoutDirty = true;
+                markLayoutDirty();
                 return;
             }
             if (rootView.getTag(TAG_KEY_OBSERVED) == null) {
                 rootView.setTag(TAG_KEY_OBSERVED, Boolean.TRUE);
                 final boolean isActivityDecor = !isPopupOrDialogRoot(rootView);
+                // [0] = lastSeenDirtyEpoch, [1] = lastDecorStructHash, [2] = pendingFullPass
+                final int[] decorState = new int[]{0, 0, 1};
+                // [0] = stateHash, [1] = retryCount, [2] = lastSizeHash
                 final int[] stateTracker = new int[]{0, 0, 0};
                 final ViewTreeObserver.OnPreDrawListener preDrawListener = new ViewTreeObserver.OnPreDrawListener() {
                     private boolean mCanceledInitial = false;
                     private boolean mRunning = false;
                     private int mPreDrawRetries = 0;
+                    private long mLastSizePreDrawMs = 0L;
                     @Override
                     public boolean onPreDraw() {
                         if (mRunning) return true;
                         if (isActivityDecor) {
-                            if (!sLayoutDirty) {
+                            if (decorState[2] == 0 && decorState[0] == sLayoutDirtyEpoch) {
                                 return true;
                             }
                             mRunning = true;
-                            sLayoutDirty = false;
+                            decorState[2] = 0;
+                            decorState[0] = sLayoutDirtyEpoch;
                             try {
                                 boolean changed = applyFullLayoutPass(rootView);
+                                decorState[1] = computeDecorStructuralHash(rootView);
                                 if (changed && mPreDrawRetries < 2) {
                                     mPreDrawRetries++;
-                                    sLayoutDirty = true;
+                                    decorState[2] = 1;
                                     rootView.requestLayout();
                                     return false;
                                 }
@@ -3063,12 +3119,24 @@ public final class TranslationEngine {
                             return true;
                         }
                         int stateHash = WorkspaceUiController.computePopupPreDrawStateHash(rootView);
-                        if (mCanceledInitial && stateHash == stateTracker[0] && !rootView.isLayoutRequested()) {
+                        int sizeHash = WorkspaceUiController.computePopupSizeHash(rootView);
+                        boolean stateChanged = (stateHash != stateTracker[0]);
+                        boolean sizeChanged = (sizeHash != stateTracker[2]);
+                        if (mCanceledInitial && !stateChanged && !sizeChanged && !rootView.isLayoutRequested()) {
                             return true;
                         }
-                        if (stateHash != stateTracker[0]) {
+                        if (stateChanged) {
                             stateTracker[0] = stateHash;
                             stateTracker[1] = 0;
+                            stateTracker[2] = sizeHash;
+                        } else if (sizeChanged) {
+                            stateTracker[2] = sizeHash;
+                            long now = System.currentTimeMillis();
+                            if (!mCanceledInitial || (now - mLastSizePreDrawMs >= 160L && stateTracker[1] < 2)) {
+                                mLastSizePreDrawMs = now;
+                            } else {
+                                return true;
+                            }
                         }
                         if (stateTracker[1] >= 2) {
                             return true;
@@ -3098,25 +3166,40 @@ public final class TranslationEngine {
                         }
                     });
                 }
-                rootView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+                final class LiveGlobalLayoutObserver implements ViewTreeObserver.OnGlobalLayoutListener, View.OnAttachStateChangeListener {
                     private long mLastRun = 0;
                     private int mLastIdleHash = 0;
+                    private int mLastIdleSizeHash = 0;
+                    private long mLastSizeRun = 0L;
                     private int mTrailingBurst = 0;
                     private boolean mTrailingScheduled = false;
                     private boolean mInPass = false;
+                    private final Runnable mTrailingRefPass = new Runnable() {
+                        @Override
+                        public void run() {
+                            if (Build.VERSION.SDK_INT >= 19 && !rootView.isAttachedToWindow()) return;
+                            if (mInPass || rootView.getVisibility() != View.VISIBLE) return;
+                            if (!WorkspaceUiController.isCanvasPopupPolishActive()) return;
+                            mInPass = true;
+                            mLastRun = System.currentTimeMillis();
+                            try {
+                                WorkspaceUiController.optimizeReferenceFloatingWindow(rootView);
+                            } catch (Throwable ignored) {}
+                            finally {
+                                mInPass = false;
+                            }
+                        }
+                    };
                     private final Runnable mTrailingPass = new Runnable() {
                         @Override
                         public void run() {
                             mTrailingScheduled = false;
+                            if (Build.VERSION.SDK_INT >= 19 && !rootView.isAttachedToWindow()) return;
                             if (mInPass || rootView.getVisibility() != View.VISIBLE) return;
                             mInPass = true;
                             mLastRun = System.currentTimeMillis();
                             try {
-                                if (isActivityDecor) {
-                                    translateViewHierarchyTracked(rootView);
-                                } else {
-                                    applyFullLayoutPass(rootView);
-                                }
+                                applyFullLayoutPass(rootView);
                             } catch (Throwable ignored) {}
                             finally {
                                 mInPass = false;
@@ -3124,16 +3207,81 @@ public final class TranslationEngine {
                         }
                     };
                     @Override
+                    public void onViewAttachedToWindow(View v) {}
+                    @Override
+                    public void onViewDetachedFromWindow(View v) {
+                        mTrailingScheduled = false;
+                        rootView.removeCallbacks(mTrailingRefPass);
+                        rootView.removeCallbacks(mTrailingPass);
+                    }
+                    @Override
                     public void onGlobalLayout() {
                         if (mInPass || rootView.getVisibility() != View.VISIBLE) return;
                         if (isActivityDecor) {
-                            sLayoutDirty = true;
+                            if (hasUntrackedVisibleWindowRoot()) {
+                                attachUntrackedWindowRoots();
+                            }
+                            int structHash = computeDecorStructuralHash(rootView);
+                            if (structHash != decorState[1]) {
+                                decorState[1] = structHash;
+                                decorState[2] = 1;
+                                rootView.removeCallbacks(mTrailingRefPass);
+                                return;
+                            }
+                            if (WorkspaceUiController.isCanvasPopupPolishActive()) {
+                                long now = System.currentTimeMillis();
+                                if (now - mLastRun >= 100L) {
+                                    mLastRun = now;
+                                    rootView.removeCallbacks(mTrailingRefPass);
+                                    mInPass = true;
+                                    try {
+                                        WorkspaceUiController.optimizeReferenceFloatingWindow(rootView);
+                                    } catch (Throwable ignored) {}
+                                    finally {
+                                        mInPass = false;
+                                    }
+                                } else {
+                                    rootView.removeCallbacks(mTrailingRefPass);
+                                    rootView.postDelayed(mTrailingRefPass, 80L);
+                                }
+                            }
                             return;
                         }
                         int stateHash = WorkspaceUiController.computePopupPreDrawStateHash(rootView);
-                        if (stateHash != mLastIdleHash) {
+                        int sizeHash = WorkspaceUiController.computePopupSizeHash(rootView);
+                        boolean stateChanged = (stateHash != mLastIdleHash);
+                        boolean sizeChanged = (sizeHash != mLastIdleSizeHash);
+                        if (stateChanged) {
                             mLastIdleHash = stateHash;
+                            mLastIdleSizeHash = sizeHash;
                             mTrailingBurst = 0;
+                        } else if (sizeChanged) {
+                            mLastIdleSizeHash = sizeHash;
+                            long now = System.currentTimeMillis();
+                            if (now - mLastSizeRun >= 160L && mTrailingBurst < 2) {
+                                mLastSizeRun = now;
+                                if (mTrailingScheduled) {
+                                    mTrailingScheduled = false;
+                                    rootView.removeCallbacks(mTrailingPass);
+                                }
+                                mInPass = true;
+                                try {
+                                    boolean changed = applyFullLayoutPass(rootView);
+                                    if (!changed) {
+                                        mTrailingBurst++;
+                                    }
+                                } catch (Throwable ignored) {}
+                                finally {
+                                    mInPass = false;
+                                }
+                            } else {
+                                if (mTrailingScheduled) {
+                                    rootView.removeCallbacks(mTrailingPass);
+                                }
+                                mTrailingScheduled = true;
+                                rootView.postDelayed(mTrailingPass, 80L);
+                            }
+                            return;
                         } else if (mTrailingBurst >= 2) {
                             return;
                         }
@@ -3160,7 +3308,10 @@ public final class TranslationEngine {
                             rootView.postDelayed(mTrailingPass, 55L);
                         }
                     }
-                });
+                }
+                LiveGlobalLayoutObserver globalObserver = new LiveGlobalLayoutObserver();
+                rootView.getViewTreeObserver().addOnGlobalLayoutListener(globalObserver);
+                rootView.addOnAttachStateChangeListener(globalObserver);
             }
         } catch (Throwable ignored) {}
     }
