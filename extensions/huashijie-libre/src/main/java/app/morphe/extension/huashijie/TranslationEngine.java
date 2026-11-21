@@ -160,6 +160,7 @@ public final class TranslationEngine {
     private static volatile boolean sWmgResolved = false;
     private static volatile Object sWmgInstance = null;
     private static volatile Field sWmgViewsField = null;
+    private static volatile boolean sSyncingWindows = false;
     private static volatile boolean sLayoutDirty = true;
     private static volatile int sProtectedSdcardRootId = 0x7f110803;
     private static volatile int sProtectedAlbumFolderId = 0x7f110077;
@@ -2019,6 +2020,53 @@ public final class TranslationEngine {
         return false;
     }
 
+    /**
+     * Translates official swatch palette titles seeded in English when switching to a non-English pack.
+     */
+    private static String translateSeededEnglishLabel(String s) {
+        if (s == null || s.isEmpty() || !isDynamicI18nEnabled() || isEnglish() || isChinesePack()) {
+            return null;
+        }
+        String defLocal = sTextMap.get("(\u9ed8\u8ba4)");
+        if (defLocal == null || defLocal.isEmpty()) {
+            defLocal = isVietnamese() ? "(M\u1eb7c \u0111\u1ecbnh)" : "(Default)";
+        }
+        String trimmedDef = defLocal.trim();
+        String base = s;
+        String suffix = "";
+        if (base.endsWith("(Default)")) {
+            base = base.substring(0, base.length() - 9).trim();
+            suffix = " " + trimmedDef;
+        } else if (!trimmedDef.isEmpty() && base.endsWith(trimmedDef)) {
+            base = base.substring(0, base.length() - trimmedDef.length()).trim();
+            suffix = " " + trimmedDef;
+        }
+        String zhKey = null;
+        if ("Basic Colors".equals(base)) {
+            zhKey = "\u57fa\u672c\u8272";
+        } else if ("Traditional Chinese Colors".equals(base)) {
+            zhKey = "\u4e2d\u56fd\u4f20\u7edf\u8272";
+        } else if ("Skin Tones".equals(base)) {
+            zhKey = "\u80a4\u8272";
+        } else if ("Retro Nostalgia".equals(base)) {
+            zhKey = "\u590d\u53e4\u60c5\u6000";
+        } else if ("Neon Starry Sky".equals(base)) {
+            zhKey = "\u9713\u8679\u661f\u7a7a";
+        }
+        if (zhKey != null) {
+            String mapped = sTextMap.get(zhKey);
+            if (mapped != null && !mapped.isEmpty()) {
+                return mapped + suffix;
+            }
+        }
+        String basicLocal = sTextMap.get("\u57fa\u672c\u8272");
+        if (!suffix.isEmpty() && basicLocal != null && basicLocal.equals(base)
+                && !s.equals(basicLocal + suffix)) {
+            return basicLocal + suffix;
+        }
+        return null;
+    }
+
     private static boolean hasUnitSuffix(String s, int end, String unit) {
         int uLen = unit.length();
         if (end <= uLen) return false;
@@ -2096,6 +2144,11 @@ public final class TranslationEngine {
             String translated = sTextMap.get(original);
             if (translated != null && !translated.isEmpty()) {
                 return translated;
+            }
+
+            String seededPalette = translateSeededEnglishLabel(original);
+            if (seededPalette != null) {
+                return seededPalette;
             }
 
             if (!containsChinese(original)) {
@@ -2369,7 +2422,7 @@ public final class TranslationEngine {
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 if (tv.getTag(TAG_KEY_WATCHER_GUARD) != null) return;
                 if (s == null || s.length() == 0) return;
-                if (isDynamicI18nEnabled() && containsChinese(s)) {
+                if (isDynamicI18nEnabled() && (containsChinese(s) || translateSeededEnglishLabel(s.toString()) != null)) {
                     try {
                         tv.setTag(TAG_KEY_WATCHER_GUARD, Boolean.TRUE);
                         translateTextView(tv);
@@ -2429,7 +2482,8 @@ public final class TranslationEngine {
             Object tagText = tv.getTag(TAG_KEY_ORIG_TEXT);
             Object lastTrans = tv.getTag(TAG_KEY_LAST_TRANSLATED);
             String orig = null;
-            if (text != null && text.length() > 0 && containsChinese(text)) {
+            if (text != null && text.length() > 0 && (containsChinese(text)
+                    || (!(tv instanceof android.widget.EditText) && translateSeededEnglishLabel(text.toString()) != null))) {
                 orig = text.toString();
                 tv.setTag(TAG_KEY_ORIG_TEXT, orig);
                 tv.setTag(TAG_KEY_LAST_TRANSLATED, null);
@@ -2644,6 +2698,7 @@ public final class TranslationEngine {
                     if (LibreConfig.isFeatureActive(LibreConfig.KEY_HIDE_DRAWER_VIP)) {
                         WorkspaceUiController.hideDrawerVipIfEnabled(decor);
                     }
+                    WorkspaceUiController.optimizeAddBrushDialog(decor);
                     decor.setTag(TAG_KEY_DIALOG_ROOT, Boolean.TRUE);
                     attachViewTreeObserver(decor);
                 }
@@ -2795,6 +2850,25 @@ public final class TranslationEngine {
         } catch (Throwable ignored) {}
     }
 
+    private static void attachUntrackedWindowRoots() {
+        if (sSyncingWindows) return;
+        sSyncingWindows = true;
+        try {
+            List<View> windows = getWindowManagerViews();
+            for (int i = 0; i < windows.size(); i++) {
+                View wRoot = windows.get(i);
+                if (wRoot != null
+                        && wRoot.getVisibility() == View.VISIBLE
+                        && wRoot.getTag(TAG_KEY_OBSERVED) == null) {
+                    attachViewTreeObserver(wRoot);
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            sSyncingWindows = false;
+        }
+    }
+
     private static boolean applyFullLayoutPass(View rootView) {
         if (rootView == null) return false;
         boolean changed = false;
@@ -2802,12 +2876,20 @@ public final class TranslationEngine {
         boolean canvasPolish = WorkspaceUiController.isCanvasPopupPolishActive();
         boolean popupOrDialog = isPopupOrDialogRoot(rootView);
         boolean polishActive = popupOrDialog && canvasPolish;
+        if (!popupOrDialog && rootView.getTag(TAG_KEY_HOST_ACTIVITY_CLASS) != null) {
+            attachUntrackedWindowRoots();
+        }
         if (fitActive || LibreConfig.isFeatureActive(LibreConfig.KEY_OPTIMIZE_CREATE_CANVAS)) {
             WorkspaceUiController.fixCreateCanvasTopBar(rootView);
         }
         if (canvasPolish) {
             changed |= WorkspaceUiController.optimizeCanvasToolBars(rootView);
             WorkspaceUiController.optimizeReferenceFloatingWindow(rootView);
+            WorkspaceUiController.polishBrushInfoRow(rootView);
+            WorkspaceUiController.polishFastKeyHostCardHeader(rootView);
+        }
+        if (popupOrDialog) {
+            WorkspaceUiController.optimizeAddBrushDialog(rootView);
         }
         if (popupOrDialog || WorkspaceUiController.isSettingPopupRoot(rootView)) {
             WorkspaceUiController.applyCanvasSettingPopupLayout(rootView);
@@ -3008,6 +3090,14 @@ public final class TranslationEngine {
                     }
                 };
                 rootView.getViewTreeObserver().addOnPreDrawListener(preDrawListener);
+                if (isActivityDecor && Build.VERSION.SDK_INT >= 18) {
+                    rootView.getViewTreeObserver().addOnWindowFocusChangeListener(new ViewTreeObserver.OnWindowFocusChangeListener() {
+                        @Override
+                        public void onWindowFocusChanged(boolean hasFocus) {
+                            attachUntrackedWindowRoots();
+                        }
+                    });
+                }
                 rootView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
                     private long mLastRun = 0;
                     private int mLastIdleHash = 0;

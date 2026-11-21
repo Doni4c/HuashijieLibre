@@ -4710,6 +4710,157 @@ public final class WorkspaceUiController {
     }
 
     /**
+     * Prevents the "Use current brush params" label from overlapping use_curbrush_switch
+     * inside the Add Custom Brush dialog, and adds clean breathing space after Brush Info labels.
+     */
+    public static void optimizeAddBrushDialog(View root) {
+        if (root == null) return;
+        try {
+            Context ctx = root.getContext();
+            if (ctx == null) return;
+            View switchView = findView(root, "use_curbrush_switch", 0);
+            if (switchView == null || switchView.getVisibility() != View.VISIBLE) return;
+            ViewParent vp = switchView.getParent();
+            if (!(vp instanceof ViewGroup)) return;
+            ViewGroup container = (ViewGroup) vp;
+            View groupChoose = findView(root, "group_choose_layout", 0);
+            int idTitle = id(ctx, "title_tv", 0);
+            int idCancel = id(ctx, "tv_cancel", 0);
+            int idSure = id(ctx, "tv_sure", 0);
+            float density = ctx.getResources().getDisplayMetrics().density;
+            int gapPx = Math.max(4, Math.round(10f * density));
+
+            int sTop = switchView.getTop();
+            int sBot = switchView.getBottom();
+            for (int i = 0; i < container.getChildCount(); i++) {
+                View child = container.getChildAt(i);
+                if (child == switchView || child == groupChoose || !(child instanceof TextView)
+                        || child instanceof android.widget.CompoundButton) {
+                    continue;
+                }
+                int cid = child.getId();
+                if ((idTitle != 0 && cid == idTitle)
+                        || (idCancel != 0 && cid == idCancel)
+                        || (idSure != 0 && cid == idSure)) {
+                    continue;
+                }
+                TextView tv = (TextView) child;
+                CharSequence txt = tv.getText();
+                if (txt == null || txt.length() == 0) continue;
+                if (sBot > sTop && tv.getHeight() > 0) {
+                    int vOverlap = Math.min(sBot, tv.getBottom()) - Math.max(sTop, tv.getTop());
+                    if (vOverlap <= 0 && Math.abs(tv.getTop() - sTop) > Math.round(28f * density)) {
+                        continue;
+                    }
+                }
+                ViewGroup.LayoutParams lp = tv.getLayoutParams();
+                boolean changed = false;
+                if (lp instanceof RelativeLayout.LayoutParams) {
+                    RelativeLayout.LayoutParams rlp = (RelativeLayout.LayoutParams) lp;
+                    int[] rules = rlp.getRules();
+                    int swId = switchView.getId();
+                    if (swId != View.NO_ID) {
+                        if (rules[RelativeLayout.ALIGN_RIGHT] != 0) {
+                            rlp.removeRule(RelativeLayout.ALIGN_RIGHT);
+                            changed = true;
+                        }
+                        if (rules[RelativeLayout.ALIGN_PARENT_RIGHT] != 0) {
+                            rlp.removeRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+                            changed = true;
+                        }
+                        if (Build.VERSION.SDK_INT >= 17) {
+                            if (rules[RelativeLayout.ALIGN_END] != 0) {
+                                rlp.removeRule(RelativeLayout.ALIGN_END);
+                                changed = true;
+                            }
+                            if (rules[RelativeLayout.ALIGN_PARENT_END] != 0) {
+                                rlp.removeRule(RelativeLayout.ALIGN_PARENT_END);
+                                changed = true;
+                            }
+                            if (rules[RelativeLayout.END_OF] != 0) {
+                                rlp.removeRule(RelativeLayout.END_OF);
+                                changed = true;
+                            }
+                        }
+                        if (rules[RelativeLayout.LEFT_OF] != swId) {
+                            rlp.addRule(RelativeLayout.LEFT_OF, swId);
+                            changed = true;
+                        }
+                        if (groupChoose != null && groupChoose.getId() != View.NO_ID
+                                && groupChoose.getParent() == container) {
+                            if (rules[RelativeLayout.ALIGN_LEFT] != groupChoose.getId()) {
+                                rlp.addRule(RelativeLayout.ALIGN_LEFT, groupChoose.getId());
+                                changed = true;
+                            }
+                        } else if (rules[RelativeLayout.ALIGN_PARENT_LEFT] == 0) {
+                            rlp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+                            changed = true;
+                        }
+                    }
+                    if (rlp.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+                        rlp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                        changed = true;
+                    }
+                    if (rlp.rightMargin != gapPx) {
+                        rlp.rightMargin = gapPx;
+                        changed = true;
+                    }
+                    if (Build.VERSION.SDK_INT >= 17 && rlp.getMarginEnd() != gapPx) {
+                        rlp.setMarginEnd(gapPx);
+                        changed = true;
+                    }
+                    if (changed) {
+                        tv.setLayoutParams(rlp);
+                    }
+                } else if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.rightMargin != gapPx) {
+                        mlp.rightMargin = gapPx;
+                        tv.setLayoutParams(mlp);
+                    }
+                }
+                setGravityIfChanged(tv, Gravity.START | Gravity.CENTER_VERTICAL);
+                setSingleLineIfChanged(tv, false);
+                setMaxLinesIfChanged(tv, 2);
+                setEllipsizeIfChanged(tv, TextUtils.TruncateAt.END);
+                TranslationEngine.ensureSafeVietnameseFontPadding(tv);
+                break;
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Adds horizontal spacing after the Brush Name label in BrushSettingActivity Info tab.
+     */
+    public static void polishBrushInfoRow(View root) {
+        if (root == null) return;
+        try {
+            Context ctx = root.getContext();
+            if (ctx == null) return;
+            View nameTitle = findView(root, "name_title", 0);
+            if (!(nameTitle instanceof TextView) || nameTitle.getVisibility() != View.VISIBLE) return;
+            float density = ctx.getResources().getDisplayMetrics().density;
+            int minGap = Math.max(4, Math.round(5f * density));
+            ViewGroup.LayoutParams lp = nameTitle.getLayoutParams();
+            if (lp instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                boolean changed = false;
+                if (mlp.rightMargin < minGap) {
+                    mlp.rightMargin = minGap;
+                    changed = true;
+                }
+                if (Build.VERSION.SDK_INT >= 17 && mlp.getMarginEnd() < minGap) {
+                    mlp.setMarginEnd(minGap);
+                    changed = true;
+                }
+                if (changed) {
+                    nameTitle.setLayoutParams(mlp);
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /**
      * Determines whether a touch event is within the reference window header drag area.
      * Treats any touch in the top header bar area (outside close and setting buttons)
      * as a draggable area, ensuring smooth and uninterrupted moving of the reference window.
@@ -5080,6 +5231,79 @@ public final class WorkspaceUiController {
         return null;
     }
 
+    public static void polishFastKeyHostCardHeader(View root) {
+        if (root == null || !isCanvasPopupPolishActive()) return;
+        try {
+            android.widget.GridLayout grid = findEightSlotFastKeyGrid(root, 0);
+            if (grid == null || !(grid.getParent() instanceof ViewGroup)) return;
+            ViewGroup card = (ViewGroup) grid.getParent();
+            float density = root.getResources().getDisplayMetrics().density;
+            int gapPx = Math.max(4, Math.round(8f * density));
+            for (int i = 0; i < card.getChildCount(); i++) {
+                View ch = card.getChildAt(i);
+                if (ch == grid || !(ch instanceof LinearLayout)) continue;
+                LinearLayout headerRow = (LinearLayout) ch;
+                if (headerRow.getOrientation() != LinearLayout.HORIZONTAL
+                        || headerRow.getChildCount() < 2) {
+                    continue;
+                }
+                View first = headerRow.getChildAt(0);
+                View second = headerRow.getChildAt(1);
+                if (!(first instanceof TextView) || !(second instanceof TextView)) continue;
+                TextView tvLeft = (TextView) first;
+                TextView tvRight = (TextView) second;
+                if (tvLeft.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                    LinearLayout.LayoutParams lLp = (LinearLayout.LayoutParams) tvLeft.getLayoutParams();
+                    if (lLp.width != 0 || lLp.weight != 1f || lLp.rightMargin < gapPx) {
+                        lLp.width = 0;
+                        lLp.weight = 1f;
+                        lLp.rightMargin = Math.max(lLp.rightMargin, gapPx);
+                        tvLeft.setLayoutParams(lLp);
+                    }
+                }
+                if (tvRight.getMaxWidth() < Integer.MAX_VALUE) {
+                    tvRight.setMaxWidth(Integer.MAX_VALUE);
+                }
+                if (tvRight.getMinWidth() != 0) {
+                    tvRight.setMinWidth(0);
+                }
+                if (tvRight.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                    LinearLayout.LayoutParams rLp = (LinearLayout.LayoutParams) tvRight.getLayoutParams();
+                    if (rLp.width != ViewGroup.LayoutParams.WRAP_CONTENT || rLp.weight != 0f) {
+                        rLp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+                        rLp.weight = 0f;
+                        tvRight.setLayoutParams(rLp);
+                    }
+                }
+                int minPadH = Math.max(4, Math.round(6f * density));
+                if (tvRight.getPaddingLeft() < minPadH) {
+                    tvRight.setPadding(minPadH, tvRight.getPaddingTop(),
+                            tvRight.getPaddingRight(), tvRight.getPaddingBottom());
+                }
+                setSingleLineIfChanged(tvRight, true);
+                setMaxLinesIfChanged(tvRight, 1);
+                TranslationEngine.ensureSafeVietnameseFontPadding(tvRight);
+                return;
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static android.widget.GridLayout findEightSlotFastKeyGrid(View v, int depth) {
+        if (v == null || depth > 12 || v.getVisibility() != View.VISIBLE) return null;
+        if (v instanceof android.widget.GridLayout) {
+            android.widget.GridLayout gl = (android.widget.GridLayout) v;
+            if (gl.getChildCount() == 8) return gl;
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                android.widget.GridLayout found = findEightSlotFastKeyGrid(vg.getChildAt(i), depth + 1);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     /**
      * Matches FastKey preset dropdown and command picker widths to the host Quick Actions card
      * and enforces an opaque rounded surface so underlying right column buttons never show through.
@@ -5087,6 +5311,7 @@ public final class WorkspaceUiController {
     public static void optimizeFastKeyPopups(View root) {
         if (root == null || !isCanvasPopupPolishActive()) return;
         try {
+            polishFastKeyHostCardHeader(root);
             View headerTv = findFastKeyPopupHeaderView(root, 0);
             if (headerTv == null || !headerTv.isShown()) return;
 
