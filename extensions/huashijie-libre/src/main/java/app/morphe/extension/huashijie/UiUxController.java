@@ -971,7 +971,10 @@ public final class UiUxController {
                     ViewGroup newOrigParent = (ViewGroup) activeContainer.getParent();
                     sPromotedOrigIndex = Math.max(0, newOrigParent.indexOfChild(activeContainer));
                     sPromotedOrigLp = activeContainer.getLayoutParams();
-                    if (activeContainer.getWidth() > 0) sPromotedWidth = activeContainer.getWidth();
+                    sPromotedWidth = 0;
+                    sPromotedHeight = 0;
+                    sPromotedWidth = resolveSliderColumnWidth(
+                            fullRoot.getContext(), activeContainer, sPromotedOrigLp, searchRoot);
                     if (activeContainer.getHeight() > 0) sPromotedHeight = activeContainer.getHeight();
                     sPromotedSliderRef = new WeakReference<>(activeContainer);
                     sPromotedOrigParentRef = new WeakReference<>(newOrigParent);
@@ -981,8 +984,13 @@ public final class UiUxController {
                         ensureHandleBeforeOpacity(slider, handle, opacityFl);
                     }
                     disallowParentInterceptRecursive(slider);
-                } else if (handle != null) {
-                    ensureHandleBeforeOpacity(slider, handle, opacityFl);
+                } else {
+                    sPromotedWidth = resolveSliderColumnWidth(
+                            fullRoot.getContext(), slider, sPromotedOrigLp, searchRoot);
+                    if (slider.getHeight() > 0) sPromotedHeight = slider.getHeight();
+                    if (handle != null) {
+                        ensureHandleBeforeOpacity(slider, handle, opacityFl);
+                    }
                 }
             }
 
@@ -994,19 +1002,26 @@ public final class UiUxController {
             } else if (slider.getParent() instanceof ViewGroup && slider.getParent() != fullRoot) {
                 ((ViewGroup) slider.getParent()).removeView(slider);
             }
+            Context ctx = fullRoot.getContext();
+            int targetW = resolveSliderColumnWidth(ctx, slider, sPromotedOrigLp, searchRoot);
+            if (targetW > 0) {
+                sPromotedWidth = targetW;
+            }
             if (slider.getParent() != fullRoot) {
-                Context ctx = fullRoot.getContext();
-                int width = sPromotedWidth > 0 ? sPromotedWidth
-                        : (slider.getWidth() > 0 ? slider.getWidth() : dpToPx(ctx, 48));
-                slider.setLayoutParams(createFreeSliderLp(fullRoot, width));
+                slider.setLayoutParams(createFreeSliderLp(fullRoot, targetW));
                 fullRoot.addView(slider);
+            } else {
+                ViewGroup.LayoutParams curLp = slider.getLayoutParams();
+                if (curLp != null && targetW > 0 && curLp.width != targetW) {
+                    curLp.width = targetW;
+                    slider.setLayoutParams(curLp);
+                }
             }
             hookSliderLayoutListener(slider);
             installFullRootSliderListeners(fullRoot);
             if (origParent != null && slider.getVisibility() != origParent.getVisibility()) {
                 slider.setVisibility(origParent.getVisibility());
             }
-            Context ctx = fullRoot.getContext();
             LibreConfig.init(ctx);
             syncPaintLeftSettingCompactWidth(ctx, leftSettingView, fullRoot);
             applyClampedNormalizedSliderPosition(ctx, fullRoot, slider, LibreConfig.get(ctx));
@@ -1033,31 +1048,86 @@ public final class UiUxController {
         return (v instanceof ViewGroup) ? (ViewGroup) v : null;
     }
 
-    private static int getXRightRelativeTo(View target, View ancestor) {
-        if (target == null || ancestor == null) return 0;
-        int x = target.getLeft();
-        int right = target.getRight();
-        if (target.getParent() == ancestor) {
-            return right;
-        }
-        View cur = target;
-        while (cur != null && cur != ancestor) {
-            x += cur.getLeft();
-            ViewParent p = cur.getParent();
-            if (!(p instanceof View)) break;
-            cur = (View) p;
-        }
-        return x - target.getLeft() + target.getWidth();
-    }
-
-    private static int resolveSafeCutoutLeft(View v) {
+    private static int resolveSafeCutout(View v, boolean right) {
         if (v == null || Build.VERSION.SDK_INT < 28) return 0;
         try {
             WindowInsets wi = v.getRootWindowInsets();
             if (wi != null && wi.getDisplayCutout() != null) {
-                return Math.max(0, wi.getDisplayCutout().getSafeInsetLeft());
+                return Math.max(0, right
+                        ? wi.getDisplayCutout().getSafeInsetRight()
+                        : wi.getDisplayCutout().getSafeInsetLeft());
             }
         } catch (Throwable ignored) {}
+        return 0;
+    }
+
+    private static int resolveSafeCutoutLeft(View v) {
+        return resolveSafeCutout(v, false);
+    }
+
+    private static int resolveSafeCutoutRight(View v) {
+        return resolveSafeCutout(v, true);
+    }
+
+    /**
+     * Resolves whether PaintLeftSettingView is docked to the right edge (tool_on_right).
+     * PaintActivity.oO00000() sets RelativeLayout.ALIGN_PARENT_RIGHT (11) vs ALIGN_PARENT_LEFT (9).
+     */
+    private static boolean isPaintLeftSettingDockedRight(ViewGroup pls) {
+        if (pls == null) return false;
+        try {
+            ViewGroup.LayoutParams lp = pls.getLayoutParams();
+            if (lp instanceof android.widget.RelativeLayout.LayoutParams) {
+                int[] rules = ((android.widget.RelativeLayout.LayoutParams) lp).getRules();
+                boolean rightRule = rules.length > android.widget.RelativeLayout.ALIGN_PARENT_RIGHT
+                        && rules[android.widget.RelativeLayout.ALIGN_PARENT_RIGHT] != 0;
+                boolean leftRule = rules.length > android.widget.RelativeLayout.ALIGN_PARENT_LEFT
+                        && rules[android.widget.RelativeLayout.ALIGN_PARENT_LEFT] != 0;
+                if (rightRule != leftRule) {
+                    return rightRule;
+                }
+            }
+            if (pls.getParent() instanceof View) {
+                View p = (View) pls.getParent();
+                if (p.getWidth() > 0 && pls.getWidth() > 0) {
+                    return (pls.getLeft() + pls.getRight()) * 0.5f > p.getWidth() * 0.5f;
+                }
+            }
+            if (pls.getPaddingRight() != pls.getPaddingLeft()) {
+                return pls.getPaddingRight() > pls.getPaddingLeft();
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    /**
+     * Resolves the canonical tool column width (35dp phone / 40dp tablet) so both seekbars_view
+     * and rl_left_setting_root_seekbar stay strictly coaxial with rl_left_setting_root.
+     */
+    private static int resolveSliderColumnWidth(
+            Context ctx, ViewGroup container, ViewGroup.LayoutParams origLp, View searchRoot) {
+        if (origLp != null && origLp.width > 0) {
+            return origLp.width;
+        }
+        if (searchRoot != null) {
+            View rlRoot = LibreResourceResolver.findViewByName(searchRoot, "rl_left_setting_root", 0);
+            if (rlRoot != null && rlRoot.getWidth() > 0) {
+                return rlRoot.getWidth();
+            }
+        }
+        if (container != null && container.getWidth() > 0) {
+            return container.getWidth();
+        }
+        if (ctx != null) {
+            try {
+                int dimId = LibreResourceResolver.resolveId(ctx, "dimen", "paint_left_setting_view_width", 0);
+                if (dimId != 0) {
+                    int px = ctx.getResources().getDimensionPixelSize(dimId);
+                    if (px > 0) return px;
+                }
+            } catch (Throwable ignored) {}
+            return dpToPx(ctx, 35);
+        }
         return 0;
     }
 
@@ -1107,21 +1177,23 @@ public final class UiUxController {
             if (sSliderTempRestored) {
                 return;
             }
-            final int targetPadL = resolveSafeCutoutLeft(pls);
+            final boolean dockRight = isPaintLeftSettingDockedRight(pls);
+            final int targetPadL = dockRight ? 0 : resolveSafeCutoutLeft(pls);
+            final int targetPadR = dockRight ? resolveSafeCutoutRight(pls) : 0;
             View rlRoot = LibreResourceResolver.findViewByName(pls, "rl_left_setting_root", 0);
             if (rlRoot == null || rlRoot.getVisibility() != View.VISIBLE || rlRoot.getWidth() <= 0) {
                 return;
             }
-            final int exactRight = getXRightRelativeTo(rlRoot, pls);
-            if (exactRight <= 0) {
+            final int targetW = rlRoot.getWidth() + (dockRight ? targetPadR : targetPadL);
+            if (targetW <= 0) {
                 return;
             }
             ViewGroup.LayoutParams lp = pls.getLayoutParams();
-            if (pls.getWidth() > exactRight + 1
+            if (pls.getWidth() != targetW
                     || pls.getMinimumWidth() != 0
                     || pls.getPaddingLeft() != targetPadL
-                    || pls.getPaddingRight() != 0
-                    || (lp != null && lp.width != exactRight && lp.width != ViewGroup.LayoutParams.WRAP_CONTENT)) {
+                    || pls.getPaddingRight() != targetPadR
+                    || (lp != null && lp.width != targetW)) {
                 pls.post(() -> {
                     try {
                         if (sSliderTempRestored) return;
@@ -1133,22 +1205,20 @@ public final class UiUxController {
                             restorePaintLeftSettingOrigin(pls);
                             return;
                         }
+                        boolean rightNow = isPaintLeftSettingDockedRight(pls);
+                        int safePadL = rightNow ? 0 : resolveSafeCutoutLeft(pls);
+                        int safePadR = rightNow ? resolveSafeCutoutRight(pls) : 0;
                         if (pls.getMinimumWidth() != 0) pls.setMinimumWidth(0);
-                        int safePadL = resolveSafeCutoutLeft(pls);
-                        if (pls.getPaddingLeft() != safePadL || pls.getPaddingRight() != 0) {
-                            pls.setPadding(safePadL, pls.getPaddingTop(), 0, pls.getPaddingBottom());
+                        if (pls.getPaddingLeft() != safePadL || pls.getPaddingRight() != safePadR) {
+                            pls.setPadding(safePadL, pls.getPaddingTop(), safePadR, pls.getPaddingBottom());
                         }
                         View r = LibreResourceResolver.findViewByName(pls, "rl_left_setting_root", 0);
                         if (r != null && r.getVisibility() == View.VISIBLE && r.getWidth() > 0) {
-                            int targetW = r.getWidth() + safePadL;
-                            int measuredRight = getXRightRelativeTo(r, pls);
-                            if (pls.getPaddingLeft() == safePadL && measuredRight > 0) {
-                                targetW = measuredRight;
-                            }
-                            if (targetW > 0) {
+                            int resolvedW = r.getWidth() + (rightNow ? safePadR : safePadL);
+                            if (resolvedW > 0) {
                                 ViewGroup.LayoutParams curLp = pls.getLayoutParams();
-                                if (curLp != null && (pls.getWidth() != targetW || curLp.width != targetW)) {
-                                    curLp.width = targetW;
+                                if (curLp != null && (pls.getWidth() != resolvedW || curLp.width != resolvedW)) {
+                                    curLp.width = resolvedW;
                                     pls.setLayoutParams(curLp);
                                     if (isLandscapeRoot(fr)) {
                                         pls.post(() -> {
@@ -1199,19 +1269,38 @@ public final class UiUxController {
             if (pls.getMinimumWidth() != 0) {
                 pls.setMinimumWidth(0);
             }
-            int safePadL = resolveSafeCutoutLeft(pls);
-            if (pls.getPaddingLeft() != safePadL || pls.getPaddingRight() != 0) {
-                pls.setPadding(safePadL, pls.getPaddingTop(), 0, pls.getPaddingBottom());
+            boolean dockRight = isPaintLeftSettingDockedRight(pls);
+            int safePadL = dockRight ? 0 : resolveSafeCutoutLeft(pls);
+            int safePadR = dockRight ? resolveSafeCutoutRight(pls) : 0;
+            if (pls.getPaddingLeft() != safePadL || pls.getPaddingRight() != safePadR) {
+                pls.setPadding(safePadL, pls.getPaddingTop(), safePadR, pls.getPaddingBottom());
             }
-            if (lp != null && lp.width != ViewGroup.LayoutParams.WRAP_CONTENT) {
-                lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+            View rlRoot = LibreResourceResolver.findViewByName(pls, "rl_left_setting_root", 0);
+            int desiredW = (rlRoot != null && rlRoot.getVisibility() == View.VISIBLE && rlRoot.getWidth() > 0)
+                    ? rlRoot.getWidth() + (dockRight ? safePadR : safePadL)
+                    : ViewGroup.LayoutParams.WRAP_CONTENT;
+            if (lp != null && lp.width != desiredW) {
+                lp.width = desiredW;
                 pls.setLayoutParams(lp);
             }
 
             if (pls.getTag(TAG_PLS_LAYOUT_HOOKED) == null) {
                 pls.setTag(TAG_PLS_LAYOUT_HOOKED, Boolean.TRUE);
-                pls.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-                        snapPaintLeftSettingWidthIfReady(ctx, pls));
+                pls.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                    snapPaintLeftSettingWidthIfReady(ctx, pls);
+                    if ((l != ol || r != or) && !sSliderDragging && !sSliderTempRestored) {
+                        pls.post(() -> {
+                            try {
+                                if (sSliderDragging || sSliderTempRestored) return;
+                                ViewGroup s2 = sPromotedSliderRef != null ? sPromotedSliderRef.get() : null;
+                                ViewGroup fr2 = sPromotedFullRootRef != null ? sPromotedFullRootRef.get() : null;
+                                if (s2 != null && fr2 != null && s2.getParent() == fr2 && isLandscapeRoot(fr2)) {
+                                    applyClampedNormalizedSliderPosition(ctx, fr2, s2, LibreConfig.get(ctx));
+                                }
+                            } catch (Throwable ignored) {}
+                        });
+                    }
+                });
             }
             snapPaintLeftSettingWidthIfReady(ctx, pls);
         } catch (Throwable ignored) {}
@@ -1250,12 +1339,12 @@ public final class UiUxController {
         int rootW = fullRoot.getWidth();
         int rootH = fullRoot.getHeight();
         int sliderW = slider.getWidth() > 0 ? slider.getWidth()
-                : (sPromotedWidth > 0 ? sPromotedWidth : dpToPx(ctx, 44));
+                : (sPromotedWidth > 0 ? sPromotedWidth : resolveSliderColumnWidth(ctx, null, null, fullRoot.getRootView()));
         int sliderH = slider.getHeight() > 0 ? slider.getHeight()
                 : (sPromotedHeight > 0 ? sPromotedHeight : dpToPx(ctx, 220));
         boolean land = rootW > rootH;
-        int edgePad = dpToPx(ctx, 6);
-        float minX = safeLeft + edgePad;
+        float minX = safeLeft;
+        float maxX = Math.max(minX, rootW - sliderW - safeRight);
         float barBottom = -1f;
         float barLeft = 0f;
         float barRight = 0f;
@@ -1266,11 +1355,18 @@ public final class UiUxController {
                 int[] vLoc = new int[2];
                 fullRoot.getLocationInWindow(rLoc);
                 if (land) {
-                    // Keep S/O clear of the real right edge of the left tool column (cutout included).
+                    // Keep S/O flush against the inner edge of rl_left_setting_root (docked left or right).
                     View leftCol = LibreResourceResolver.findViewByName(rootView, "rl_left_setting_root", 0);
                     if (leftCol != null && leftCol.isShown() && leftCol.getWidth() > 0) {
                         leftCol.getLocationInWindow(vLoc);
-                        minX = Math.max(minX, vLoc[0] - rLoc[0] + leftCol.getWidth());
+                        float colLeft = vLoc[0] - rLoc[0];
+                        float colRight = colLeft + leftCol.getWidth();
+                        boolean isDockOnRight = (colLeft + colRight) * 0.5f > rootW * 0.5f;
+                        if (isDockOnRight) {
+                            maxX = Math.min(maxX, colLeft - sliderW);
+                        } else {
+                            minX = Math.max(minX, colRight);
+                        }
                     }
                 }
                 View bar = LibreResourceResolver.findViewByName(rootView, NAME_TOP_BAR, FALLBACK_TOP_BAR);
@@ -1282,7 +1378,7 @@ public final class UiUxController {
                 }
             }
         } catch (Throwable ignored) {}
-        float maxX = Math.max(minX, rootW - sliderW - safeRight - edgePad);
+        maxX = Math.max(minX, maxX);
         int topFloorDp = land ? 8 : 36;
         float minY = Math.max(safeTop, dpToPx(ctx, topFloorDp));
         float maxY = Math.max(minY, rootH - sliderH - safeBottom);
@@ -1534,7 +1630,7 @@ public final class UiUxController {
             dragHandle.setFocusable(false);
 
             final int badgeSize = dpToPx(activity, 24);
-            final int hitPadTop = dpToPx(activity, 8);
+            final int hitPadTop = dpToPx(activity, 12);
             final int hitPadBottom = dpToPx(activity, 12);
             dragHandle.setPadding(0, hitPadTop, 0, hitPadBottom);
 
@@ -1748,12 +1844,18 @@ public final class UiUxController {
                                 sPromotedFullRootRef = new WeakReference<>(fullRoot);
                                 sSliderTempRestored = false;
 
+                                int initW = resolveSliderColumnWidth(activity, container, sPromotedOrigLp, fullRoot.getRootView());
+                                if (initW > 0) {
+                                    sPromotedWidth = initW;
+                                } else {
+                                    initW = finalW;
+                                }
                                 origParent.removeView(container);
-                                container.setLayoutParams(createFreeSliderLp(fullRoot, finalW));
+                                container.setLayoutParams(createFreeSliderLp(fullRoot, initW));
                                 fullRoot.addView(container);
 
-                                applyClampedNormalizedSliderPosition(activity, fullRoot, container, config);
                                 syncPaintLeftSettingCompactWidth(activity, null, fullRoot);
+                                applyClampedNormalizedSliderPosition(activity, fullRoot, container, config);
 
                                 installFullRootSliderListeners(fullRoot);
                                 hookSliderLayoutListener(container);
