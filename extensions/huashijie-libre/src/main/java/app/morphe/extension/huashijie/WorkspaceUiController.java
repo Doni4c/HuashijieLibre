@@ -2526,39 +2526,85 @@ public final class WorkspaceUiController {
                         }
                         if (origPx > 0f) {
                             String str = cs.toString();
-                            int availW = w - padH * 2;
-                            TextPaint tp = new TextPaint(labelTv.getPaint());
-                            float minGridPx = origPx * 0.72f;
-                            float targetPx = origPx;
-                            for (int step = 0; step < 8; step++) {
-                                tp.setTextSize(targetPx);
-                                float maxWordW = TranslationEngine.computeMaxWordWidth(tp, str);
-                                StaticLayout sl;
-                                if (Build.VERSION.SDK_INT >= 23) {
-                                    sl = StaticLayout.Builder.obtain(str, 0, str.length(), tp, Math.max(1, availW))
-                                            .setAlignment(Layout.Alignment.ALIGN_CENTER)
-                                            .setLineSpacing(labelTv.getLineSpacingExtra(), labelTv.getLineSpacingMultiplier())
-                                            .setIncludePad(labelTv.getIncludeFontPadding())
-                                            .build();
-                                } else {
-                                    sl = new StaticLayout(str, tp, Math.max(1, availW), Layout.Alignment.ALIGN_CENTER,
-                                            labelTv.getLineSpacingMultiplier(), labelTv.getLineSpacingExtra(),
-                                            labelTv.getIncludeFontPadding());
-                                }
-                                float maxLineW = 0f;
-                                for (int li = 0; li < sl.getLineCount(); li++) {
-                                    float lw = sl.getLineWidth(li);
-                                    if (lw > maxLineW) maxLineW = lw;
-                                }
-                                if ((sl.getLineCount() <= 2 && maxWordW <= availW && maxLineW <= availW)
-                                        || targetPx <= minGridPx) {
-                                    break;
-                                }
-                                targetPx = Math.max(minGridPx, targetPx * 0.94f);
-                            }
-                            if (Math.abs(labelTv.getTextSize() - targetPx) >= 0.5f) {
-                                labelTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetPx);
-                            }
+            int availW = w - padH * 2;
+            Locale activeLoc = TranslationEngine.getActiveLocale();
+            Typeface activeTf = UIFontManager.getActiveTypeface(labelTv.getContext());
+            TypographyNormalizer.prepareTextViewForPipeline(
+                    labelTv, str, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
+            TextPaint tp = TypographyNormalizer.getScratchTextPaint(labelTv.getPaint());
+            TypographyNormalizer.preparePaintForScript(tp, str, activeLoc, activeTf);
+            int sg = TypographyNormalizer.classifyScript(str);
+            boolean allowBreak = TypographyNormalizer.hasNaturalBreakToken(str)
+                    || TypographyNormalizer.allowsUnspacedLineBreak(str);
+            float floorPx = TypographyNormalizer.computeProtectedFloorPx(origPx, labelTv.getResources().getDisplayMetrics());
+            float targetPx = origPx;
+            float targetScaleX = 1.0f;
+
+            tp.setTextSize(origPx);
+            tp.setTextScaleX(1.0f);
+            float w1 = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
+            boolean fit1 = w1 <= availW + 0.5f;
+            boolean fit2 = false;
+            if (!fit1 && allowBreak) {
+                StaticLayout slOrig = TypographyNormalizer.buildStaticLayout(
+                        str, tp, availW, Layout.Alignment.ALIGN_CENTER,
+                        labelTv.getLineSpacingMultiplier(), labelTv.getLineSpacingExtra(),
+                        true, 0, null, TypographyNormalizer.containsRtlChars(str));
+                if (slOrig.getLineCount() <= 2
+                        && TypographyNormalizer.getMaxLineWidth(slOrig) <= availW + 0.5f
+                        && !TypographyNormalizer.hasDisallowedWordSplit(slOrig, str, sg)) {
+                    fit2 = true;
+                }
+            }
+            if (!fit1 && !fit2) {
+                float curPx = origPx * 0.94f;
+                for (int step = 0; step < 8; step++) {
+                    if (step == 7 || curPx < floorPx) curPx = floorPx;
+                    tp.setTextSize(curPx);
+                    tp.setTextScaleX(1.0f);
+                    if (TypographyNormalizer.measureHarfBuzzWidth(str, tp) <= availW + 0.5f) {
+                        targetPx = curPx;
+                        fit1 = true;
+                        break;
+                    }
+                    if (allowBreak) {
+                        StaticLayout sl = TypographyNormalizer.buildStaticLayout(
+                                str, tp, availW, Layout.Alignment.ALIGN_CENTER,
+                                labelTv.getLineSpacingMultiplier(), labelTv.getLineSpacingExtra(),
+                                true, 0, null, TypographyNormalizer.containsRtlChars(str));
+                        if (sl.getLineCount() <= 2
+                                && TypographyNormalizer.getMaxLineWidth(sl) <= availW + 0.5f
+                                && !TypographyNormalizer.hasDisallowedWordSplit(sl, str, sg)) {
+                            targetPx = curPx;
+                            fit2 = true;
+                            break;
+                        }
+                    }
+                    if (curPx <= floorPx + 0.05f) break;
+                    curPx = Math.max(floorPx, curPx * 0.94f);
+                }
+                if (!fit1 && !fit2) {
+                    targetPx = floorPx;
+                    if (sg == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK && !allowBreak) {
+                        tp.setTextSize(floorPx);
+                        float wf = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
+                        if (wf > availW + 0.5f && wf > 1f) {
+                            targetScaleX = Math.max(0.90f, Math.min(1.0f, availW / wf));
+                        }
+                    }
+                }
+            }
+            if (!fit1 && !fit2) {
+                setEllipsizeIfChanged(labelTv, TextUtils.TruncateAt.END);
+            } else if (labelTv.getEllipsize() != null) {
+                setEllipsizeIfChanged(labelTv, null);
+            }
+            if (Math.abs(labelTv.getTextScaleX() - targetScaleX) > 0.005f) {
+                labelTv.setTextScaleX(targetScaleX);
+            }
+            if (Math.abs(labelTv.getTextSize() - targetPx) >= 0.4f) {
+                labelTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetPx);
+            }
                         }
                     }
                 }
@@ -2706,6 +2752,20 @@ public final class WorkspaceUiController {
         if (!isPaperNameView(tv)) return false;
         boolean mutated = false;
         try {
+            TypographyNormalizer.BaselineSnapshot snap = TypographyNormalizer.captureBaseline(tv);
+            if (!TranslationEngine.isTextAutoFitActive()) {
+                ViewParent pOff = tv.getParent();
+                if (pOff instanceof View) {
+                    mutated |= TypographyNormalizer.restoreContainerBaseline((View) pOff);
+                    if (((View) pOff).getParent() instanceof View) {
+                        mutated |= TypographyNormalizer.restoreContainerBaseline((View) ((View) pOff).getParent());
+                    }
+                }
+                mutated |= TypographyNormalizer.restoreBaseline(tv);
+                tv.setTag(TAG_PAPER_NAME_CENTERED, null);
+                return mutated;
+            }
+            float density = tv.getResources().getDisplayMetrics().density;
             int desiredGrav = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
             if (tv.getGravity() != desiredGrav) {
                 tv.setGravity(desiredGrav);
@@ -2715,23 +2775,107 @@ public final class WorkspaceUiController {
                 tv.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
                 mutated = true;
             }
-            int padL = tv.getPaddingLeft();
-            int padR = tv.getPaddingRight();
-            if (padL != padR) {
-                int sym = Math.min(padL, padR);
-                tv.setPadding(sym, tv.getPaddingTop(), sym, tv.getPaddingBottom());
-                mutated = true;
-            }
-            if (Build.VERSION.SDK_INT >= 17) {
-                int padS = tv.getPaddingStart();
-                int padE = tv.getPaddingEnd();
-                if (padS != padE) {
-                    int symRel = Math.min(padS, padE);
-                    tv.setPaddingRelative(symRel, tv.getPaddingTop(), symRel, tv.getPaddingBottom());
+
+            ViewParent vp = tv.getParent();
+            boolean isWrapPaperCard = vp instanceof LinearLayout
+                    && ((LinearLayout) vp).getLayoutParams() != null
+                    && ((LinearLayout) vp).getLayoutParams().width == ViewGroup.LayoutParams.WRAP_CONTENT;
+            if (isWrapPaperCard) {
+                LinearLayout card = (LinearLayout) vp;
+                TypographyNormalizer.captureContainerBaseline(card);
+                int minCardPadH = Math.round(6f * density);
+                if (card.getPaddingLeft() < minCardPadH || card.getPaddingRight() < minCardPadH) {
+                    int nPadL = Math.max(card.getPaddingLeft(), minCardPadH);
+                    int nPadR = Math.max(card.getPaddingRight(), minCardPadH);
+                    card.setPadding(nPadL, card.getPaddingTop(), nPadR, card.getPaddingBottom());
                     mutated = true;
                 }
+                int thumbW = Math.round(66f * density);
+                int thumbH = Math.round(66f * density);
+                if (card.getChildCount() > 0 && card.getChildAt(0) != tv) {
+                    View thumbBox = card.getChildAt(0);
+                    if (thumbBox.getWidth() > 0) thumbW = thumbBox.getWidth();
+                    if (thumbBox.getHeight() > 0) thumbH = thumbBox.getHeight();
+                }
+                int cardInnerMaxW = thumbW + Math.round(12f * density);
+                int tvSafePad = Math.round(4f * density);
+                int textAvailW = Math.max(1, cardInnerMaxW - 2 * tvSafePad);
+                CharSequence cs = tv.getText();
+                if (cs != null && cs.length() > 0) {
+                    String str = cs.toString();
+                    Locale activeLoc = TranslationEngine.getActiveLocale();
+                    Typeface activeTf = UIFontManager.getActiveTypeface(tv.getContext());
+                    mutated |= TypographyNormalizer.prepareTextViewForPipeline(
+                            tv, str, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
+                    TypographyNormalizer.CandidatePlan plan = TypographyNormalizer.evaluateCandidates(
+                            str,
+                            snap != null && snap.origTextSize > 0f ? snap.origTextSize : tv.getTextSize(),
+                            1.0f,
+                            TypographyNormalizer.classifyScript(str),
+                            TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP,
+                            true,
+                            textAvailW,
+                            0,
+                            Math.round(18f * density),
+                            tv.getLineSpacingMultiplier(),
+                            tv.getLineSpacingExtra(),
+                            true,
+                            tv.getPaint(),
+                            activeLoc,
+                            activeTf,
+                            tv.getResources().getDisplayMetrics());
+                    mutated |= TypographyNormalizer.applySolvedPlanToTextView(
+                            tv,
+                            plan,
+                            plan.targetPx,
+                            tvSafePad,
+                            tvSafePad,
+                            true,
+                            false,
+                            cardInnerMaxW,
+                            1,
+                            "paperCard");
+                    TextPaint measureTp = TypographyNormalizer.getScratchTextPaint(tv.getPaint());
+                    TypographyNormalizer.preparePaintForScript(measureTp, str, activeLoc, activeTf);
+                    measureTp.setTextSize(plan.targetPx);
+                    float neededCardH = thumbH + Math.round(11f * density)
+                            + 2f * TypographyNormalizer.measureFontMetricsLineHeight(measureTp)
+                            + card.getPaddingTop() + Math.max(card.getPaddingBottom(), Math.round(8f * density));
+                    if (card.getParent() instanceof View) {
+                        View rv = (View) card.getParent();
+                        TypographyNormalizer.ContainerHeightSnapshot rvSnap =
+                                TypographyNormalizer.captureContainerBaseline(rv);
+                        if (rvSnap != null && rvSnap.origLpHeight > 0) {
+                            int wantRvH = Math.round(neededCardH + rv.getPaddingTop() + rv.getPaddingBottom());
+                            ViewGroup.LayoutParams rvLp = rv.getLayoutParams();
+                            if (rvLp != null && rvLp.height > 0 && rvLp.height < wantRvH) {
+                                rvLp.height = wantRvH;
+                                rv.setLayoutParams(rvLp);
+                                mutated = true;
+                            }
+                        }
+                    }
+                }
+            } else {
+                int padL = tv.getPaddingLeft();
+                int padR = tv.getPaddingRight();
+                if (padL != padR) {
+                    int sym = Math.min(padL, padR);
+                    tv.setPadding(sym, tv.getPaddingTop(), sym, tv.getPaddingBottom());
+                    mutated = true;
+                }
+                if (Build.VERSION.SDK_INT >= 17) {
+                    int padS = tv.getPaddingStart();
+                    int padE = tv.getPaddingEnd();
+                    if (padS != padE) {
+                        int symRel = Math.min(padS, padE);
+                        tv.setPaddingRelative(symRel, tv.getPaddingTop(), symRel, tv.getPaddingBottom());
+                        mutated = true;
+                    }
+                }
+                mutated |= TranslationEngine.ensureSafeVietnameseFontPadding(tv);
             }
-            mutated |= TranslationEngine.ensureSafeVietnameseFontPadding(tv);
+
             ViewGroup.LayoutParams rawLp = tv.getLayoutParams();
             if (rawLp instanceof LinearLayout.LayoutParams) {
                 LinearLayout.LayoutParams llp = (LinearLayout.LayoutParams) rawLp;
@@ -4831,8 +4975,8 @@ public final class WorkspaceUiController {
         if (tv == null) return 0f;
         CharSequence cs = tv.getText();
         if (cs == null || cs.length() == 0) return 0f;
-        Object origObj = tv.getTag(0x7e098613); // TAG_KEY_ORIG_TEXT_SIZE
-        float origPx = (origObj instanceof Float && (Float) origObj > 0f) ? (Float) origObj : tv.getTextSize();
+        TypographyNormalizer.BaselineSnapshot snap = TypographyNormalizer.captureBaseline(tv);
+        float origPx = (snap != null && snap.origTextSize > 0f) ? snap.origTextSize : tv.getTextSize();
         TextPaint tp = TypographyNormalizer.getScratchTextPaint(tv.getPaint());
         if (origPx > 0f) {
             tp.setTextSize(origPx);
@@ -4844,13 +4988,221 @@ public final class WorkspaceUiController {
         return TypographyNormalizer.measureHarfBuzzWidth(cs, tp);
     }
 
+    private static volatile int sSolverPassEpoch = 1;
+
+    private static int measureTextSlotAvailH(View rowContainer, TextView tv, float density) {
+        if (tv == null) return 0;
+        ViewGroup.LayoutParams tvLp = tv.getLayoutParams();
+        if (tvLp != null && tvLp.height > 0 && tv.getHeight() > 0) {
+            return Math.max(1, tv.getHeight() - tv.getCompoundPaddingTop() - tv.getCompoundPaddingBottom());
+        }
+        int baseRowH = 0;
+        if (rowContainer != null) {
+            TypographyNormalizer.ContainerHeightSnapshot rowSnap =
+                    TypographyNormalizer.captureContainerBaseline(rowContainer);
+            if (rowSnap != null && rowSnap.origLpHeight > 0) {
+                baseRowH = rowSnap.origLpHeight;
+            } else if (rowContainer.getLayoutParams() != null && rowContainer.getLayoutParams().height > 0) {
+                baseRowH = rowContainer.getLayoutParams().height;
+            } else if (rowContainer.getHeight() > 0) {
+                baseRowH = rowContainer.getHeight();
+            }
+        }
+        if (baseRowH > 0) {
+            int iconUsed = Math.round(33f * density);
+            if (rowContainer instanceof ViewGroup && tv.getTop() > 0) {
+                int tvTopInRow = 0;
+                View cur = tv;
+                while (cur != null && cur != rowContainer) {
+                    tvTopInRow += cur.getTop();
+                    ViewParent vp = cur.getParent();
+                    cur = (vp instanceof View) ? (View) vp : null;
+                }
+                if (cur == rowContainer && tvTopInRow >= Math.round(22f * density)
+                        && tvTopInRow <= Math.round(42f * density)) {
+                    iconUsed = tvTopInRow;
+                }
+            }
+            int reserveBottom = Math.round(5f * density);
+            return Math.max(Math.round(14f * density), baseRowH - iconUsed - reserveBottom);
+        }
+        return 0;
+    }
+
+    /**
+     * Aligns mixed LinearLayout(ImageView+TextView) and compound drawableTop TextView slots
+     * inside a horizontal canvas bar so all icons and label baselines sit on level axes.
+     */
+    private static boolean alignMixedIconRow(LinearLayout row, float density) {
+        if (row == null) return false;
+        boolean mutated = false;
+        TypographyNormalizer.captureContainerBaseline(row);
+        if (row.isBaselineAligned()) {
+            row.setBaselineAligned(false);
+            mutated = true;
+        }
+        int rowVertGrav = row.getGravity() & Gravity.VERTICAL_GRAVITY_MASK;
+        if (rowVertGrav != Gravity.TOP) {
+            row.setGravity((row.getGravity() & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.TOP);
+            mutated = true;
+        }
+        int maxIconBoxH = 0;
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View ch = row.getChildAt(i);
+            if (ch.getVisibility() == View.GONE) continue;
+            TypographyNormalizer.captureContainerBaseline(ch);
+            if (ch.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                LinearLayout.LayoutParams clp = (LinearLayout.LayoutParams) ch.getLayoutParams();
+                if ((clp.gravity & Gravity.VERTICAL_GRAVITY_MASK) != Gravity.TOP) {
+                    clp.gravity = (clp.gravity <= 0 ? Gravity.TOP : ((clp.gravity & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.TOP));
+                    ch.setLayoutParams(clp);
+                    mutated = true;
+                }
+            }
+            if (ch instanceof ViewGroup && ((ViewGroup) ch).getChildCount() > 0) {
+                View iconBox = ((ViewGroup) ch).getChildAt(0);
+                if (!(iconBox instanceof TextView)) {
+                    int h = iconBox.getHeight() > 0 ? iconBox.getHeight() : iconBox.getMeasuredHeight();
+                    if (h > 0) {
+                        maxIconBoxH = Math.max(maxIconBoxH, ch.getPaddingTop() + h);
+                    }
+                }
+            }
+        }
+        if (maxIconBoxH <= 0) return mutated;
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View ch = row.getChildAt(i);
+            if (ch.getVisibility() == View.GONE || !(ch instanceof TextView)) continue;
+            TextView tv = (TextView) ch;
+            TypographyNormalizer.BaselineSnapshot snap = TypographyNormalizer.captureBaseline(tv);
+            android.graphics.drawable.Drawable[] ds = tv.getCompoundDrawables();
+            android.graphics.drawable.Drawable topD = (ds != null && ds.length > 1) ? ds[1] : null;
+            if (topD == null && Build.VERSION.SDK_INT >= 17) {
+                android.graphics.drawable.Drawable[] rds = tv.getCompoundDrawablesRelative();
+                topD = (rds != null && rds.length > 1) ? rds[1] : null;
+            }
+            if (topD != null) {
+                int dH = topD.getBounds().height() > 0 ? topD.getBounds().height() : topD.getIntrinsicHeight();
+                if (dH > 0) {
+                    int basePadT = snap != null ? snap.origPadT : tv.getPaddingTop();
+                    int wantPadT = Math.max(basePadT, Math.max(0, (maxIconBoxH - dH) / 2));
+                    if (tv.getPaddingTop() != wantPadT) {
+                        tv.setPadding(tv.getPaddingLeft(), wantPadT, tv.getPaddingRight(), tv.getPaddingBottom());
+                        mutated = true;
+                    }
+                }
+            }
+        }
+        return mutated;
+    }
+
+    private static boolean alignVerticalIconSlotContainer(View slot, View iconView, TextView tv, int topPadPx) {
+        if (slot == null) return false;
+        boolean mutated = false;
+        TypographyNormalizer.captureContainerBaseline(slot);
+        if (slot instanceof LinearLayout) {
+            LinearLayout ll = (LinearLayout) slot;
+            if (ll.isBaselineAligned()) {
+                ll.setBaselineAligned(false);
+                mutated = true;
+            }
+            int wantG = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            if (ll.getGravity() != wantG) {
+                ll.setGravity(wantG);
+                mutated = true;
+            }
+        }
+        if (topPadPx >= 0 && slot.getPaddingTop() != topPadPx) {
+            slot.setPadding(slot.getPaddingLeft(), topPadPx, slot.getPaddingRight(), slot.getPaddingBottom());
+            mutated = true;
+        }
+        if (iconView != null && iconView.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+            LinearLayout.LayoutParams ilp = (LinearLayout.LayoutParams) iconView.getLayoutParams();
+            if (ilp.gravity != Gravity.CENTER_HORIZONTAL) {
+                ilp.gravity = Gravity.CENTER_HORIZONTAL;
+                iconView.setLayoutParams(ilp);
+                mutated = true;
+            }
+        }
+        if (tv != null) {
+            int tvG = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            if (tv.getGravity() != tvG) {
+                tv.setGravity(tvG);
+                mutated = true;
+            }
+        }
+        return mutated;
+    }
+
+    private static boolean solveStripPeerGroup(
+            View rowContainer,
+            List<TypographyNormalizer.GroupMember> members,
+            int archetype,
+            int maxGrowthPx,
+            boolean enforceTopCenter,
+            boolean fillSlotWidth,
+            boolean expandAncestors,
+            int maxAncestorHops,
+            int epoch,
+            String groupTag,
+            float density) {
+        if (members == null || members.isEmpty()) return false;
+        boolean mutated = false;
+        Locale activeLoc = TranslationEngine.getActiveLocale();
+        Typeface activeTf = UIFontManager.getActiveTypeface(members.get(0).tv.getContext());
+        DisplayMetrics dm = members.get(0).tv.getResources().getDisplayMetrics();
+
+        for (int i = 0; i < members.size(); i++) {
+            TypographyNormalizer.GroupMember m = members.get(i);
+            TypographyNormalizer.captureBaseline(m.tv);
+            mutated |= TypographyNormalizer.prepareTextViewForPipeline(
+                    m.tv, m.text, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
+        }
+
+        TypographyNormalizer.GroupSolveResult res = TypographyNormalizer.solvePeerGroup(
+                members, archetype, maxGrowthPx, activeLoc, activeTf, dm);
+
+        if (res.maxDeltaH > 0 && rowContainer != null) {
+            if (expandAncestors) {
+                mutated |= TypographyNormalizer.expandFixedHeightChain(rowContainer, res.maxDeltaH, maxAncestorHops);
+            }
+        }
+
+        for (int i = 0; i < members.size(); i++) {
+            TypographyNormalizer.GroupMember m = members.get(i);
+            if (m.plan == null) continue;
+            float applyPx = m.plan.extremeOutlier ? m.plan.targetPx : res.groupPx;
+            int targetMaxW = (m.plan.useEllipsis || fillSlotWidth)
+                    ? (m.safeAvailW + m.safePadL + m.safePadR)
+                    : 0;
+            mutated |= TypographyNormalizer.applySolvedPlanToTextView(
+                    m.tv,
+                    m.plan,
+                    applyPx,
+                    m.safePadL,
+                    m.safePadR,
+                    enforceTopCenter,
+                    fillSlotWidth,
+                    targetMaxW,
+                    epoch,
+                    groupTag);
+            if (enforceTopCenter && m.slotView != null && m.slotView != m.tv) {
+                mutated |= alignVerticalIconSlotContainer(m.slotView, null, m.tv, -1);
+            }
+        }
+        return mutated;
+    }
+
     /**
      * Widens cramped horizontal canvas sub-toolbars (Lasso selection, Shape selector, Symmetry selector,
-     * Bucket/Gradient bar, 3D edit bar, 3D preview tabs, and Liquify bar) in PaintActivity so localized
-     * labels fit cleanly without unnatural wrapping, sidebar collision, or horizontal clipping.
+     * Bucket/Gradient bar, 3D edit bar, 3D preview tabs, and Liquify bar) in PaintActivity and runs
+     * Phase 2 peer synchronization across button rows with clean toggle-OFF baseline restoration.
      */
     public static boolean optimizeCanvasToolBars(View root) {
-        if (root == null || !isCanvasPopupPolishActive()) return false;
+        if (root == null) return false;
+        if (!isCanvasPopupPolishActive() && !TranslationEngine.isTextAutoFitActive()) {
+            return false;
+        }
         Context ctx = root.getContext();
         if (ctx == null || !TranslationEngine.resolveHostActivityName(root).endsWith("PaintActivity")) return false;
         boolean mutated = false;
@@ -4863,36 +5215,59 @@ public final class WorkspaceUiController {
             int[] span = computeUsableCanvasSpan(root, dm);
             int usableW = span[2];
             float freeCenterShiftX = span[3];
+            boolean autoFitOn = TranslationEngine.isTextAutoFitActive();
+            int epoch = ++sSolverPassEpoch;
 
-            // 1. Expand ShapeSettingView and standard_view dynamically within the open canvas span.
+            // 1. Expand ShapeSettingView and standard_view dynamically and solve 6 buttons uniformly.
             int idShape = LibreResourceResolver.resolveViewId(ctx, "shape_setting", 0);
             if (idShape != 0) {
                 View shapeBar = root.findViewById(idShape);
                 if (shapeBar != null && shapeBar.getVisibility() == View.VISIBLE) {
                     View stdView = findView(shapeBar, "standard_view", 0);
+                    View stdClickView = findView(shapeBar, "standard_click_view", 0);
                     View contentView = findView(shapeBar, "content_view", 0);
+                    View shapeStripRow = (contentView != null && contentView.getParent() instanceof View)
+                            ? (View) contentView.getParent()
+                            : null;
                     TextView stdTv = (findView(shapeBar, "standard_tv", 0) instanceof TextView)
                             ? (TextView) findView(shapeBar, "standard_tv", 0)
                             : null;
-                    float maxSlotLabelW = 0f;
-                    for (String lblId : new String[]{"rect_tv", "oval_tv", "line_tv", "mutil_line_tv", "curves_tv"}) {
+
+                    float maxSlotSingleW = 0f;
+                    float maxSlotWordW = 0f;
+                    List<TextView> shapeTvs = new ArrayList<>(6);
+                    String[] shapeIds = new String[]{"rect_tv", "oval_tv", "line_tv", "mutil_line_tv", "curves_tv"};
+                    for (String lblId : shapeIds) {
                         View v = findView(shapeBar, lblId, 0);
                         if (v instanceof TextView) {
                             TextView st = (TextView) v;
-                            applySingleLineToolbarLabel(st);
-                            maxSlotLabelW = Math.max(maxSlotLabelW, measureLabelDesiredWidth(st));
+                            shapeTvs.add(st);
+                            TypographyNormalizer.captureBaseline(st);
+                            maxSlotSingleW = Math.max(maxSlotSingleW, measureLabelDesiredWidth(st));
+                            CharSequence sc = st.getText();
+                            if (sc != null) {
+                                TextPaint tp = TypographyNormalizer.getScratchTextPaint(st.getPaint());
+                                TypographyNormalizer.BaselineSnapshot snap = TypographyNormalizer.captureBaseline(st);
+                                if (snap != null && snap.origTextSize > 0f) tp.setTextSize(snap.origTextSize);
+                                TypographyNormalizer.preparePaintForScript(
+                                        tp, sc, TranslationEngine.getActiveLocale(), UIFontManager.getActiveTypeface(ctx));
+                                maxSlotWordW = Math.max(maxSlotWordW, TranslationEngine.computeMaxWordWidth(tp, sc.toString()));
+                            }
                         }
                     }
-                    if (stdTv != null) {
-                        applySingleLineToolbarLabel(stdTv);
-                    }
-                    float stdLabelW = stdTv != null ? measureLabelDesiredWidth(stdTv) : 0f;
+                    float stdSingleW = stdTv != null ? measureLabelDesiredWidth(stdTv) : 0f;
+                    boolean stdBreakable = stdTv != null && stdTv.getText() != null
+                            && TypographyNormalizer.hasNaturalBreakToken(stdTv.getText());
+
+                    TypographyNormalizer.captureContainerBaseline(shapeBar);
+                    TypographyNormalizer.captureContainerBaseline(shapeStripRow);
+                    TypographyNormalizer.captureContainerBaseline(contentView);
+                    TypographyNormalizer.captureContainerBaseline(stdView);
+                    TypographyNormalizer.captureContainerBaseline(stdClickView);
 
                     ViewGroup.LayoutParams sLp = shapeBar.getLayoutParams();
-                    if (sLp != null) {
-                        if (shapeBar.getTag(TAG_ORIG_SHAPE_W) == null && sLp.width > 0) {
-                            shapeBar.setTag(TAG_ORIG_SHAPE_W, Integer.valueOf(sLp.width));
-                        }
+                    if (sLp != null && shapeBar.getTag(TAG_ORIG_SHAPE_W) == null && sLp.width > 0) {
+                        shapeBar.setTag(TAG_ORIG_SHAPE_W, Integer.valueOf(sLp.width));
                     }
                     if (stdView != null && stdView.getTag(TAG_ORIG_SHAPE_STD_W) == null
                             && stdView.getLayoutParams() != null && stdView.getLayoutParams().width > 0) {
@@ -4904,25 +5279,91 @@ public final class WorkspaceUiController {
                     }
 
                     int desiredStdW = stdView != null
-                            ? TypographyNormalizer.clamp(Math.round(stdLabelW + 14f * density),
-                                    Math.round(50f * density), Math.round(86f * density))
-                            : Math.round(50f * density);
-                    int desiredSlotW = TypographyNormalizer.clamp(Math.round(maxSlotLabelW + 14f * density),
+                            ? TypographyNormalizer.clamp(
+                                    Math.round((stdBreakable ? Math.max(stdSingleW * 0.72f, stdSingleW + 10f * density) : (stdSingleW + 18f * density))),
+                                    Math.round(54f * density),
+                                    Math.round(stdBreakable ? 74f * density : 94f * density))
+                            : Math.round(54f * density);
+                    float wantSlotText = Math.max(maxSlotWordW + 12f * density, Math.min(maxSlotSingleW + 12f * density, 70f * density));
+                    int desiredSlotW = TypographyNormalizer.clamp(Math.round(wantSlotText),
                             Math.round(50f * density), Math.round(74f * density));
-                    int desiredContentW = 5 * desiredSlotW + Math.round(12f * density);
-                    int gapPx = Math.round(6f * density);
+                    int desiredContentW = 5 * desiredSlotW + Math.round(8f * density);
+                    int gapPx = Math.round(5f * density);
                     int maxAllowedShapeW = Math.max(Math.round(240f * density), usableW - Math.round(8f * density));
 
                     int targetStdW = desiredStdW;
                     int targetContentW = desiredContentW;
                     if (targetContentW + targetStdW + gapPx > maxAllowedShapeW) {
                         int availBoth = Math.max(Math.round(224f * density), maxAllowedShapeW - gapPx);
-                        targetStdW = Math.min(desiredStdW, Math.max(Math.round(50f * density), Math.round(availBoth * 0.20f)));
+                        float stdShare = stdBreakable ? 0.23f : 0.30f;
+                        int maxStdCap = Math.max(Math.round(54f * density), Math.round(availBoth * stdShare));
+                        targetStdW = Math.min(desiredStdW, maxStdCap);
                         targetContentW = Math.max(Math.round(170f * density), availBoth - targetStdW);
                     }
                     int targetShapeW = Math.min(maxAllowedShapeW, targetContentW + targetStdW + gapPx);
                     if (stdView != null) {
                         setHorizontalMargins(stdView, Math.round(4f * density), 0);
+                    }
+
+                    if (contentView instanceof ViewGroup) {
+                        ViewGroup cvGroup = (ViewGroup) contentView;
+                        int visIdx = 0;
+                        int visTotal = 0;
+                        for (int k = 0; k < cvGroup.getChildCount(); k++) {
+                            if (cvGroup.getChildAt(k).getVisibility() != View.GONE) visTotal++;
+                        }
+                        int outerM = Math.round(3f * density);
+                        int innerSlotPadH = Math.round(1f * density);
+                        for (int k = 0; k < cvGroup.getChildCount(); k++) {
+                            View slot = cvGroup.getChildAt(k);
+                            if (slot.getVisibility() == View.GONE) continue;
+                            TypographyNormalizer.captureContainerBaseline(slot);
+                            setHorizontalMargins(slot, visIdx == 0 ? outerM : 0, visIdx == visTotal - 1 ? outerM : 0);
+                            if (slot.getPaddingLeft() != innerSlotPadH || slot.getPaddingRight() != innerSlotPadH) {
+                                slot.setPadding(innerSlotPadH, slot.getPaddingTop(), innerSlotPadH, slot.getPaddingBottom());
+                            }
+                            if (slot instanceof LinearLayout) {
+                                ((LinearLayout) slot).setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                            }
+                            visIdx++;
+                        }
+                    }
+                    if (stdView instanceof LinearLayout && contentView != null) {
+                        LinearLayout stdLl = (LinearLayout) stdView;
+                        stdLl.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                        int matchTop = contentView.getPaddingTop();
+                        if (stdLl.getPaddingTop() != matchTop) {
+                            stdLl.setPadding(stdLl.getPaddingLeft(), matchTop, stdLl.getPaddingRight(), stdLl.getPaddingBottom());
+                        }
+                    }
+                    if (stdClickView != null) {
+                        if (stdClickView instanceof LinearLayout) {
+                            ((LinearLayout) stdClickView).setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                        }
+                        ViewGroup.LayoutParams scLp = stdClickView.getLayoutParams();
+                        boolean scChanged = false;
+                        if (scLp != null) {
+                            // CRITICAL: res/vk.xml declares standard_click_view with WRAP_CONTENT width, which clamps MATCH_PARENT standard_tv to the 24dp ImageView width.
+                            if (scLp.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+                                scLp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                                scChanged = true;
+                            }
+                            if (scLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                                scLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                                scChanged = true;
+                            }
+                            if (scLp instanceof ViewGroup.MarginLayoutParams) {
+                                ViewGroup.MarginLayoutParams sMlp = (ViewGroup.MarginLayoutParams) scLp;
+                                if (sMlp.topMargin != 0) {
+                                    sMlp.topMargin = 0;
+                                    scChanged = true;
+                                }
+                            }
+                            if (scChanged) {
+                                stdClickView.setLayoutParams(scLp);
+                                mutated = true;
+                            }
+                        }
                     }
 
                     if (sLp != null && sLp.width > 0 && sLp.width != targetShapeW) {
@@ -4937,6 +5378,9 @@ public final class WorkspaceUiController {
                             contentView.setLayoutParams(cLp);
                             mutated = true;
                         }
+                        if (contentView instanceof LinearLayout) {
+                            ((LinearLayout) contentView).setGravity(Gravity.TOP);
+                        }
                     }
                     if (stdView != null) {
                         ViewGroup.LayoutParams stdLp = stdView.getLayoutParams();
@@ -4950,6 +5394,55 @@ public final class WorkspaceUiController {
                         shapeBar.setTranslationX(freeCenterShiftX);
                         mutated = true;
                     }
+
+                    if (autoFitOn && !shapeTvs.isEmpty()) {
+                        int perSlotW = Math.max(1, (targetContentW - Math.round(6f * density)) / 5);
+                        int slotInnerW = Math.max(1, perSlotW - Math.round(2f * density));
+                        int safeSlotPad = TypographyNormalizer.clamp(
+                                Math.round(slotInnerW * 0.08f), Math.round(3f * density), Math.round(6f * density));
+                        int slotAvailTextW = Math.max(1, slotInnerW - 2 * safeSlotPad);
+                        int hardAvailH = measureTextSlotAvailH(shapeStripRow, shapeTvs.get(0), density);
+
+                        List<TypographyNormalizer.GroupMember> members = new ArrayList<>(6);
+                        for (int i = 0; i < shapeTvs.size(); i++) {
+                            TextView st = shapeTvs.get(i);
+                            CharSequence cs = st.getText();
+                            if (cs == null || cs.length() == 0) continue;
+                            View slot = (st.getParent() instanceof View) ? (View) st.getParent() : null;
+                            members.add(new TypographyNormalizer.GroupMember(
+                                    st, cs.toString(), slotAvailTextW, hardAvailH, safeSlotPad, safeSlotPad, true, slot));
+                        }
+                        if (stdTv != null && stdTv.getText() != null && stdTv.getText().length() > 0) {
+                            int safeStdPad = TypographyNormalizer.clamp(
+                                    Math.round(targetStdW * 0.08f), Math.round(3f * density), Math.round(7f * density));
+                            int stdAvailTextW = Math.max(1, targetStdW - 2 * safeStdPad);
+                            members.add(new TypographyNormalizer.GroupMember(
+                                    stdTv, stdTv.getText().toString(), stdAvailTextW, hardAvailH, safeStdPad, safeStdPad, true, stdClickView));
+                        }
+                        unclipContainerSafely(shapeBar instanceof ViewGroup ? (ViewGroup) shapeBar : null);
+                        unclipContainerSafely(shapeBar.getParent() instanceof ViewGroup ? (ViewGroup) shapeBar.getParent() : null);
+                        unclipContainerSafely(shapeStripRow instanceof ViewGroup ? (ViewGroup) shapeStripRow : null);
+                        unclipContainerSafely(contentView instanceof ViewGroup ? (ViewGroup) contentView : null);
+                        unclipContainerSafely(stdView instanceof ViewGroup ? (ViewGroup) stdView : null);
+                        unclipContainerSafely(stdClickView instanceof ViewGroup ? (ViewGroup) stdClickView : null);
+                        mutated |= solveStripPeerGroup(
+                                shapeStripRow,
+                                members,
+                                TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP,
+                                Math.round(24f * density),
+                                true,
+                                true,
+                                true,
+                                0,
+                                epoch,
+                                "shapeBar",
+                                density);
+                        if (sLp != null && sLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                            sLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                            shapeBar.setLayoutParams(sLp);
+                            mutated = true;
+                        }
+                    }
                 }
             }
 
@@ -4961,6 +5454,7 @@ public final class WorkspaceUiController {
                     View symRoot = (View) toolsView.getParent();
                     if (symRoot.getVisibility() == View.VISIBLE
                             && symRoot.getClass().getName().endsWith("SymmetrySettingView")) {
+                        TypographyNormalizer.captureContainerBaseline(symRoot);
                         int targetSymW = Math.min(Math.round(376 * density), usableW - Math.round(16 * density));
                         ViewGroup.LayoutParams symLp = symRoot.getLayoutParams();
                         if (symLp != null && symLp.width > 0 && symLp.width != targetSymW) {
@@ -4976,7 +5470,7 @@ public final class WorkspaceUiController {
                 }
             }
 
-            // 3. Optimize XuanQuSettingView dynamically using ToggleSwitchView widths inside open span.
+            // 3. Optimize XuanQuSettingView dynamically (5-btn Lasso & 6-btn Magic Wand + Deform menu).
             int idDeformMenu = LibreResourceResolver.resolveViewId(ctx, "ll_img_deformation_menu", 0);
             if (idDeformMenu != 0) {
                 View deformMenu = root.findViewById(idDeformMenu);
@@ -4993,42 +5487,123 @@ public final class WorkspaceUiController {
                         int idView1 = LibreResourceResolver.resolveViewId(ctx, "view1", 0);
                         View view1 = idView1 != 0 ? shadowLayout.findViewById(idView1) : null;
                         if (view1 instanceof ViewGroup && view1.getVisibility() == View.VISIBLE) {
-                            View sw1 = findView(view1, "switchView", 0);
+                            TypographyNormalizer.captureContainerBaseline(view1);
+                            View sw1 = findView(view1, "magic_stick_sampler_switch_view", 0);
+                            if (sw1 == null) sw1 = findView(view1, "switchView", 0);
                             int desiredSw1 = computeDesiredToggleSwitchBarWidth(sw1, usableW, density);
+                            int maxV1W = Math.max(Math.round(280 * density), usableW - Math.round(12 * density));
+
+                            ViewGroup vg1 = (ViewGroup) view1;
+                            LinearLayout hRow1 = null;
+                            int visibleBtns = 0;
+                            float rowNeededW = 0f;
+                            for (int i = 0; i < vg1.getChildCount(); i++) {
+                                View row = vg1.getChildAt(i);
+                                if (row instanceof LinearLayout
+                                        && ((LinearLayout) row).getOrientation() == LinearLayout.HORIZONTAL) {
+                                    hRow1 = (LinearLayout) row;
+                                    break;
+                                }
+                            }
+                            if (hRow1 != null) {
+                                TypographyNormalizer.captureContainerBaseline(hRow1);
+                                for (int j = 0; j < hRow1.getChildCount(); j++) {
+                                    View ch = hRow1.getChildAt(j);
+                                    if (ch.getVisibility() == View.GONE) continue;
+                                    visibleBtns++;
+                                    TextView btnTv = findDirectSlotTextView(ch);
+                                    if (btnTv != null) {
+                                        rowNeededW += measureLabelDesiredWidth(btnTv) + Math.round(12 * density);
+                                    } else {
+                                        rowNeededW += Math.round(52 * density);
+                                    }
+                                }
+                                rowNeededW += Math.round(22 * density);
+                            }
+
                             int targetV1W = TypographyNormalizer.clamp(
-                                    Math.max(Math.round(280 * density), desiredSw1),
+                                    Math.round(Math.max(Math.round(280 * density), Math.max(desiredSw1, rowNeededW))),
                                     Math.round(280 * density),
-                                    Math.max(Math.round(280 * density), usableW - Math.round(16 * density)));
+                                    maxV1W);
                             ViewGroup.LayoutParams v1Lp = view1.getLayoutParams();
                             if (v1Lp != null && v1Lp.width > 0 && v1Lp.width != targetV1W) {
                                 v1Lp.width = targetV1W;
                                 view1.setLayoutParams(v1Lp);
                                 mutated = true;
                             }
-                            if (!Boolean.TRUE.equals(view1.getTag(TAG_TOOLBAR_POLISHED))) {
-                                ViewGroup vg1 = (ViewGroup) view1;
-                                for (int i = 0; i < vg1.getChildCount(); i++) {
-                                    View row = vg1.getChildAt(i);
-                                    if (row instanceof LinearLayout
-                                            && ((LinearLayout) row).getOrientation() == LinearLayout.HORIZONTAL) {
-                                        LinearLayout hRow = (LinearLayout) row;
-                                        int gapPx = Math.round(4 * density);
-                                        int edgePx = Math.round(6 * density);
-                                        for (int j = 0; j < hRow.getChildCount(); j++) {
-                                            View ch = hRow.getChildAt(j);
-                                            setHorizontalMargins(ch, j == 0 ? edgePx : gapPx,
-                                                    j == hRow.getChildCount() - 1 ? edgePx : gapPx);
-                                        }
-                                        mutated = true;
-                                    }
+                            if (hRow1 != null && visibleBtns >= 2) {
+                                if (hRow1.isBaselineAligned()) {
+                                    hRow1.setBaselineAligned(false);
+                                    mutated = true;
                                 }
-                                view1.setTag(TAG_TOOLBAR_POLISHED, Boolean.TRUE);
+                                if ((hRow1.getGravity() & Gravity.VERTICAL_GRAVITY_MASK) != Gravity.TOP) {
+                                    hRow1.setGravity((hRow1.getGravity() & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.TOP);
+                                    mutated = true;
+                                }
+                                int gapPx = Math.round((visibleBtns >= 6 ? 2 : 3) * density);
+                                int edgePx = Math.round((visibleBtns >= 6 ? 3 : 5) * density);
+                                int idx = 0;
+                                float totalWeight = 0f;
+                                for (int j = 0; j < hRow1.getChildCount(); j++) {
+                                    View ch = hRow1.getChildAt(j);
+                                    if (ch.getVisibility() == View.GONE) continue;
+                                    TypographyNormalizer.captureContainerBaseline(ch);
+                                    setHorizontalMargins(ch, idx == 0 ? edgePx : gapPx,
+                                            idx == visibleBtns - 1 ? edgePx : gapPx);
+                                    if (ch.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                                        float w = ((LinearLayout.LayoutParams) ch.getLayoutParams()).weight;
+                                        totalWeight += (w > 0f ? w : 1f);
+                                    } else {
+                                        totalWeight += 1f;
+                                    }
+                                    idx++;
+                                }
+                                if (autoFitOn && totalWeight > 0f) {
+                                    int hRowMargins = 0;
+                                    if (hRow1.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                                        ViewGroup.MarginLayoutParams rMlp = (ViewGroup.MarginLayoutParams) hRow1.getLayoutParams();
+                                        hRowMargins = rMlp.leftMargin + rMlp.rightMargin;
+                                    }
+                                    int innerRowW = Math.max(1, targetV1W - hRowMargins - hRow1.getPaddingLeft() - hRow1.getPaddingRight()
+                                            - 2 * edgePx - Math.max(0, visibleBtns - 1) * 2 * gapPx);
+                                    List<TypographyNormalizer.GroupMember> xMembers = new ArrayList<>(visibleBtns);
+                                    for (int j = 0; j < hRow1.getChildCount(); j++) {
+                                        View ch = hRow1.getChildAt(j);
+                                        if (ch.getVisibility() == View.GONE) continue;
+                                        TextView btnTv = findDirectSlotTextView(ch);
+                                        if (btnTv == null || btnTv.getText() == null || btnTv.getText().length() == 0) continue;
+                                        float w = (ch.getLayoutParams() instanceof LinearLayout.LayoutParams)
+                                                ? Math.max(1f, ((LinearLayout.LayoutParams) ch.getLayoutParams()).weight)
+                                                : 1f;
+                                        int slotW = Math.max(1, Math.round(innerRowW * (w / totalWeight)));
+                                        int safePad = TypographyNormalizer.clamp(
+                                                Math.round(slotW * 0.06f), Math.round(2f * density), Math.round(5f * density));
+                                        int textAvail = Math.max(1, slotW - 2 * safePad);
+                                        xMembers.add(new TypographyNormalizer.GroupMember(
+                                                btnTv, btnTv.getText().toString(), textAvail, 0, safePad, safePad, true, ch));
+                                    }
+                                    unclipContainerSafely(hRow1);
+                                    mutated |= alignMixedIconRow(hRow1, density);
+                                    mutated |= solveStripPeerGroup(
+                                            hRow1,
+                                            xMembers,
+                                            TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP,
+                                            Math.round(18f * density),
+                                            true,
+                                            false,
+                                            false,
+                                            0,
+                                            epoch,
+                                            "xuanquV1_" + visibleBtns,
+                                            density);
+                                }
                             }
                         }
                         if (view2.getVisibility() == View.VISIBLE) {
-                            View sw2 = findView(view2, "magic_stick_sampler_switch_view", 0);
+                            TypographyNormalizer.captureContainerBaseline(view2);
+                            View sw2 = findView(view2, "switchView", 0);
                             int desiredSw2 = computeDesiredToggleSwitchBarWidth(sw2, usableW, density);
-                            int maxV2W = Math.max(Math.round(280 * density), usableW - Math.round(16 * density));
+                            int maxV2W = Math.max(Math.round(280 * density), usableW - Math.round(14 * density));
                             int targetV2W = Math.min(Math.max(Math.round(415 * density), desiredSw2), maxV2W);
                             ViewGroup.LayoutParams v2Lp = view2.getLayoutParams();
                             if (v2Lp != null && v2Lp.width > 0 && v2Lp.width != targetV2W) {
@@ -5036,15 +5611,75 @@ public final class WorkspaceUiController {
                                 view2.setLayoutParams(v2Lp);
                                 mutated = true;
                             }
-                            if (!Boolean.TRUE.equals(deformMenu.getTag(TAG_TOOLBAR_POLISHED))) {
-                                ViewGroup deformGroup = (ViewGroup) deformMenu;
-                                int smallGap = Math.round(4 * density);
+                            ViewGroup deformGroup = (ViewGroup) deformMenu;
+                            TypographyNormalizer.captureContainerBaseline(deformGroup);
+                            int visDeform = 0;
+                            for (int i = 0; i < deformGroup.getChildCount(); i++) {
+                                if (deformGroup.getChildAt(i).getVisibility() != View.GONE) visDeform++;
+                            }
+                            int smallGap = Math.round(4 * density);
+                            int idx2 = 0;
+                            float sumW2 = 0f;
+                            for (int i = 0; i < deformGroup.getChildCount(); i++) {
+                                View ch = deformGroup.getChildAt(i);
+                                if (ch.getVisibility() == View.GONE) continue;
+                                TypographyNormalizer.captureContainerBaseline(ch);
+                                setHorizontalMargins(ch, 0, idx2 == visDeform - 1 ? 0 : smallGap);
+                                if (ch.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                                    float w = ((LinearLayout.LayoutParams) ch.getLayoutParams()).weight;
+                                    sumW2 += (w > 0f ? w : 1f);
+                                } else {
+                                    sumW2 += 1f;
+                                }
+                                idx2++;
+                            }
+                            if (autoFitOn && visDeform >= 2 && sumW2 > 0f) {
+                                if (deformGroup instanceof LinearLayout) {
+                                    LinearLayout dLl = (LinearLayout) deformGroup;
+                                    if (dLl.isBaselineAligned()) dLl.setBaselineAligned(false);
+                                    if ((dLl.getGravity() & Gravity.VERTICAL_GRAVITY_MASK) != Gravity.TOP) {
+                                        dLl.setGravity((dLl.getGravity() & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.TOP);
+                                    }
+                                    ViewGroup.LayoutParams dLp = dLl.getLayoutParams();
+                                    if (dLp != null && dLp.height == 0) {
+                                        dLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                                        dLl.setLayoutParams(dLp);
+                                    }
+                                }
+                                int innerW2 = Math.max(1, targetV2W - deformGroup.getPaddingLeft() - deformGroup.getPaddingRight()
+                                        - Math.max(0, visDeform - 1) * smallGap);
+                                List<TypographyNormalizer.GroupMember> m2 = new ArrayList<>(visDeform);
                                 for (int i = 0; i < deformGroup.getChildCount(); i++) {
                                     View ch = deformGroup.getChildAt(i);
-                                    setHorizontalMargins(ch, 0, i == deformGroup.getChildCount() - 1 ? 0 : smallGap);
+                                    if (ch.getVisibility() == View.GONE) continue;
+                                    TextView btnTv = findDirectSlotTextView(ch);
+                                    if (btnTv == null || btnTv.getText() == null || btnTv.getText().length() == 0) continue;
+                                    float w = (ch.getLayoutParams() instanceof LinearLayout.LayoutParams)
+                                            ? Math.max(1f, ((LinearLayout.LayoutParams) ch.getLayoutParams()).weight)
+                                            : 1f;
+                                    int slotW = Math.max(1, Math.round(innerW2 * (w / sumW2)));
+                                    int safePad = TypographyNormalizer.clamp(
+                                            Math.round(slotW * 0.06f), Math.round(2f * density), Math.round(5f * density));
+                                    int textAvail = Math.max(1, slotW - 2 * safePad);
+                                    m2.add(new TypographyNormalizer.GroupMember(
+                                            btnTv, btnTv.getText().toString(), textAvail, 0, safePad, safePad, true, ch));
                                 }
-                                deformMenu.setTag(TAG_TOOLBAR_POLISHED, Boolean.TRUE);
-                                mutated = true;
+                                unclipContainerSafely(deformGroup);
+                                if (deformGroup instanceof LinearLayout) {
+                                    mutated |= alignMixedIconRow((LinearLayout) deformGroup, density);
+                                }
+                                mutated |= solveStripPeerGroup(
+                                        deformGroup,
+                                        m2,
+                                        TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP,
+                                        Math.round(18f * density),
+                                        true,
+                                        false,
+                                        false,
+                                        0,
+                                        epoch,
+                                        "xuanquV2_" + visDeform,
+                                        density);
                             }
                         }
                     }
@@ -5057,7 +5692,7 @@ public final class WorkspaceUiController {
                 mutated |= normalizeLiuyebiBar(liuyebiBar, root, usableW, freeCenterShiftX, density);
             }
 
-            // 5. Top3DEditSettingView: prevent equal phone weight=1 from squeezing Move/Rotate into 2 lines.
+            // 5. Top3DEditSettingView (Archetype III Rigid 1D strip): prevent equal phone weight=1 from squeezing.
             View viewMove = findView(root, "view_move", 0);
             View viewRotate = findView(root, "view_rorate", 0);
             View bgReset = findView(root, "bg_reset", 0);
@@ -5070,6 +5705,7 @@ public final class WorkspaceUiController {
                     int padL = Math.round(10 * density);
                     int padR = Math.round(4 * density);
                     for (View slot : new View[]{viewMove, viewRotate}) {
+                        TypographyNormalizer.captureContainerBaseline(slot);
                         if (slot.getLayoutParams() instanceof LinearLayout.LayoutParams) {
                             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) slot.getLayoutParams();
                             boolean slotChg = false;
@@ -5115,7 +5751,7 @@ public final class WorkspaceUiController {
             }
             polishGestureSwitchRows(root);
 
-            // 6. PreView3D view tabs: balance weight for Perspective and keep all 4 tabs single-line.
+            // 6. PreView3D view tabs (Archetype III Rigid 1D strip): uniform single-line peer sizing.
             View tvPersp = findView(root, "tv_scenograph", 0);
             if (tvPersp instanceof TextView && tvPersp.getParent() instanceof LinearLayout) {
                 LinearLayout tabRow = (LinearLayout) tvPersp.getParent();
@@ -5127,36 +5763,871 @@ public final class WorkspaceUiController {
                     setLinearItemWeight(tvSide, 1.0f);
                     setLinearItemWeight(tvFront, 1.05f);
                     setLinearItemWeight(tvPersp, 1.3f);
-                    for (View tab : new View[]{tvTop, tvSide, tvFront, tvPersp}) {
-                        if (tab instanceof TextView) {
-                            fitToolbarLabelToWidth((TextView) tab, 12f, 8.8f, density);
+                    if (autoFitOn) {
+                        View[] tabs = new View[]{tvTop, tvSide, tvFront, tvPersp};
+                        int rowW = tabRow.getWidth() > 0 ? tabRow.getWidth() : usableW;
+                        int innerTabW = Math.max(1, rowW - tabRow.getPaddingLeft() - tabRow.getPaddingRight());
+                        float sumW = 1.0f + 1.0f + 1.05f + 1.3f;
+                        float[] ws = new float[]{1.0f, 1.0f, 1.05f, 1.3f};
+                        List<TypographyNormalizer.GroupMember> tabMembers = new ArrayList<>(4);
+                        for (int i = 0; i < tabs.length; i++) {
+                            if (tabs[i] instanceof TextView && tabs[i].getVisibility() != View.GONE) {
+                                TextView tTv = (TextView) tabs[i];
+                                CharSequence cs = tTv.getText();
+                                if (cs == null || cs.length() == 0) continue;
+                                int slotW = Math.max(1, Math.round(innerTabW * (ws[i] / sumW)));
+                                int safePad = TypographyNormalizer.clamp(
+                                        Math.round(slotW * 0.08f), Math.round(4f * density), Math.round(8f * density));
+                                int avail = Math.max(1, slotW - 2 * safePad);
+                                tabMembers.add(new TypographyNormalizer.GroupMember(
+                                        tTv, cs.toString(), avail, 0, safePad, safePad, false, tTv));
+                            }
                         }
+                        mutated |= solveStripPeerGroup(
+                                tabRow,
+                                tabMembers,
+                                TypographyNormalizer.ARCHETYPE_RIGID_1D_STRIP,
+                                0,
+                                false,
+                                false,
+                                false,
+                                0,
+                                epoch,
+                                "d3Tabs",
+                                density);
                     }
                 }
             }
 
-            // 7. LiquefySettingPhoneView: keep 6 button labels uniform 1-line down to 8.5sp with 2dp margins.
+            // 7. LiquefySettingPhoneView (Archetype II Vertical Elastic Strip): solve 6 buttons uniformly.
             View liquefyPhone = findView(root, "liquefy_phone_view", 0);
             if (liquefyPhone != null && liquefyPhone.getVisibility() == View.VISIBLE) {
+                TypographyNormalizer.captureContainerBaseline(liquefyPhone);
+                int minPadH = Math.round(6 * density);
+                int minPadB = Math.max(liquefyPhone.getPaddingBottom(), Math.round(5 * density));
+                if (liquefyPhone.getPaddingLeft() != minPadH
+                        || liquefyPhone.getPaddingRight() != minPadH
+                        || liquefyPhone.getPaddingBottom() != minPadB) {
+                    liquefyPhone.setPadding(minPadH, liquefyPhone.getPaddingTop(), minPadH, minPadB);
+                    mutated = true;
+                }
                 int liqMarginPx = Math.round(2 * density);
-                for (String lblId : new String[]{
+                ViewGroup buttonRow = null;
+                List<TextView> liqTvs = new ArrayList<>(6);
+                String[] liqIds = new String[]{
                         "liquefy_type_tv",
                         "liquid_recreate_tv_phone",
                         "liquid_sharping_tv_phone",
                         "liquid_reset_tv_phone",
                         "liquid_cancel_tv_phone",
                         "liquid_sure_tv_phone"
-                }) {
-                    View tv = findView(liquefyPhone, lblId, 0);
-                    if (tv instanceof TextView) {
-                        if (tv.getParent() instanceof View) {
-                            setHorizontalMargins((View) tv.getParent(), liqMarginPx, liqMarginPx);
+                };
+                for (String lblId : liqIds) {
+                    View v = findView(liquefyPhone, lblId, 0);
+                    if (v instanceof TextView) {
+                        TextView lTv = (TextView) v;
+                        TypographyNormalizer.captureBaseline(lTv);
+                        if (lTv.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                            ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lTv.getLayoutParams();
+                            if (mlp.leftMargin != 0 || mlp.rightMargin != 0) {
+                                setHorizontalMargins(lTv, 0, 0);
+                                mutated = true;
+                            }
                         }
-                        fitToolbarLabelToWidth((TextView) tv, 10.5f, 8.5f, density);
+                        liqTvs.add(lTv);
+                        if (lTv.getParent() instanceof View) {
+                            View slot = (View) lTv.getParent();
+                            TypographyNormalizer.captureContainerBaseline(slot);
+                            setHorizontalMargins(slot, liqMarginPx, liqMarginPx);
+                            if (slot.getParent() instanceof ViewGroup && buttonRow == null) {
+                                buttonRow = (ViewGroup) slot.getParent();
+                            }
+                        }
+                    }
+                }
+                if (autoFitOn && !liqTvs.isEmpty() && buttonRow != null) {
+                    TypographyNormalizer.captureContainerBaseline(buttonRow);
+                    if (buttonRow instanceof LinearLayout) {
+                        LinearLayout bLl = (LinearLayout) buttonRow;
+                        if (bLl.isBaselineAligned()) bLl.setBaselineAligned(false);
+                        if ((bLl.getGravity() & Gravity.VERTICAL_GRAVITY_MASK) != Gravity.TOP) {
+                            bLl.setGravity((bLl.getGravity() & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.TOP);
+                        }
+                        ViewGroup.LayoutParams bLp = bLl.getLayoutParams();
+                        if (bLp != null && bLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                            bLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                            bLl.setLayoutParams(bLp);
+                            mutated = true;
+                        }
+                    }
+                    int rowW = buttonRow.getWidth() > 0 ? buttonRow.getWidth() : usableW;
+                    int count = Math.max(1, liqTvs.size());
+                    int totalMargins = count * 2 * liqMarginPx;
+                    int slotW = Math.max(1, (rowW - buttonRow.getPaddingLeft() - buttonRow.getPaddingRight() - totalMargins) / count);
+                    int safePad = TypographyNormalizer.clamp(
+                            Math.round(slotW * 0.06f), Math.round(2f * density), Math.round(5f * density));
+                    int textAvailW = Math.max(1, slotW - 2 * safePad);
+                    List<TypographyNormalizer.GroupMember> liqMembers = new ArrayList<>(count);
+                    for (int i = 0; i < liqTvs.size(); i++) {
+                        TextView lTv = liqTvs.get(i);
+                        CharSequence cs = lTv.getText();
+                        if (cs == null || cs.length() == 0) continue;
+                        View slot = (lTv.getParent() instanceof View) ? (View) lTv.getParent() : null;
+                        liqMembers.add(new TypographyNormalizer.GroupMember(
+                                lTv, cs.toString(), textAvailW, 0, safePad, safePad, true, slot));
+                    }
+                    unclipContainerSafely(buttonRow);
+                    unclipContainerSafely(liquefyPhone instanceof ViewGroup ? (ViewGroup) liquefyPhone : null);
+                    mutated |= solveStripPeerGroup(
+                            buttonRow,
+                            liqMembers,
+                            TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP,
+                            Math.round(18f * density),
+                            true,
+                            true,
+                            false,
+                            0,
+                            epoch,
+                            "liquefyPhone",
+                            density);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return mutated;
+    }
+
+    private static TextView findDirectSlotTextView(View slot) {
+        if (slot instanceof TextView) return (TextView) slot;
+        if (slot instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) slot;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                View ch = vg.getChildAt(i);
+                if (ch instanceof TextView && ch.getVisibility() != View.GONE) {
+                    return (TextView) ch;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Archetype I (ELASTIC_2D): Expands vertical PopupWindow menus (e.g., MainActivity 3-dot menu)
+     * horizontally up to 72% screen width with uniform 100% original font sizing and right-edge
+     * anchor compensation so menus never push past the right viewport boundary or staircase font sizes.
+     */
+    private static final class PopupElasticSnapshot {
+        final int origPwW;
+        final int origPwH;
+        final int origBubbleW;
+        final int origBubbleH;
+        final int origLlPadL;
+        final int origLlPadR;
+        final int origWinX;
+        final int origWinY;
+        final int origWinW;
+        String lastAppliedSig = "";
+
+        PopupElasticSnapshot(
+                int origPwW,
+                int origPwH,
+                int origBubbleW,
+                int origBubbleH,
+                int origLlPadL,
+                int origLlPadR,
+                int origWinX,
+                int origWinY,
+                int origWinW) {
+            this.origPwW = origPwW;
+            this.origPwH = origPwH;
+            this.origBubbleW = origBubbleW;
+            this.origBubbleH = origBubbleH;
+            this.origLlPadL = origLlPadL;
+            this.origLlPadR = origLlPadR;
+            this.origWinX = origWinX;
+            this.origWinY = origWinY;
+            this.origWinW = origWinW;
+        }
+    }
+
+    private static final class DialogTitleSnapshot {
+        final int origWidth;
+        final int origPadL;
+        final int origPadR;
+        final int origMarginL;
+        final int origMarginR;
+        final int origMarginS;
+        final int origMarginE;
+        final int origGravity;
+        final int origLlpGravity;
+        final int origTextAlignment;
+
+        DialogTitleSnapshot(TextView tv) {
+            this.origPadL = tv.getPaddingLeft();
+            this.origPadR = tv.getPaddingRight();
+            this.origGravity = tv.getGravity();
+            this.origTextAlignment = Build.VERSION.SDK_INT >= 17 ? tv.getTextAlignment() : View.TEXT_ALIGNMENT_INHERIT;
+            ViewGroup.LayoutParams lp = tv.getLayoutParams();
+            if (lp != null) {
+                this.origWidth = lp.width;
+                this.origLlpGravity = (lp instanceof LinearLayout.LayoutParams) ? ((LinearLayout.LayoutParams) lp).gravity : -1;
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                    this.origMarginL = mlp.leftMargin;
+                    this.origMarginR = mlp.rightMargin;
+                    if (Build.VERSION.SDK_INT >= 17) {
+                        this.origMarginS = mlp.getMarginStart();
+                        this.origMarginE = mlp.getMarginEnd();
+                    } else {
+                        this.origMarginS = mlp.leftMargin;
+                        this.origMarginE = mlp.rightMargin;
+                    }
+                } else {
+                    this.origMarginL = 0;
+                    this.origMarginR = 0;
+                    this.origMarginS = 0;
+                    this.origMarginE = 0;
+                }
+            } else {
+                this.origWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
+                this.origLlpGravity = -1;
+                this.origMarginL = 0;
+                this.origMarginR = 0;
+                this.origMarginS = 0;
+                this.origMarginE = 0;
+            }
+        }
+    }
+
+    public static boolean optimizeElasticPopupMenus(View root) {
+        if (root == null) return false;
+        PopupWindow pw = getBoundPopupWindow(root);
+        if (pw == null) return false;
+        try {
+            if (findView(root, "nsv_canvas", 0x7f090a13) != null
+                    || findView(root, "nsv_setting", 0x7f090a17) != null
+                    || findView(root, "nsv_import", 0x7f090a15) != null
+                    || findView(root, "dialog_setting_iv", 0) != null
+                    || findView(root, "toggleView", 0) != null
+                    || findFastKeyPopupHeaderView(root, 0) != null) {
+                return false;
+            }
+            LinearLayout menuCol = findVerticalMenuColumn(root, 0);
+            if (menuCol == null) return false;
+
+            View bubbleView = findView(root, "bubbleView", 0);
+            if (bubbleView == null && menuCol.getParent() instanceof View) {
+                bubbleView = (View) menuCol.getParent();
+            }
+
+            Object snapObj = root.getTag(TypographyNormalizer.TAG_POPUP_ELASTIC_SNAP);
+            View winRoot = root.getRootView();
+            int[] winLoc = new int[2];
+            if (winRoot != null) winRoot.getLocationOnScreen(winLoc);
+            WindowManager.LayoutParams wlp = (winRoot != null && winRoot.getLayoutParams() instanceof WindowManager.LayoutParams)
+                    ? (WindowManager.LayoutParams) winRoot.getLayoutParams()
+                    : null;
+
+            if (!TranslationEngine.isTextAutoFitActive()) {
+                if (snapObj instanceof PopupElasticSnapshot) {
+                    PopupElasticSnapshot snap = (PopupElasticSnapshot) snapObj;
+                    snap.lastAppliedSig = "";
+                    if (menuCol.getPaddingLeft() != snap.origLlPadL || menuCol.getPaddingRight() != snap.origLlPadR) {
+                        menuCol.setPadding(snap.origLlPadL, menuCol.getPaddingTop(), snap.origLlPadR, menuCol.getPaddingBottom());
+                    }
+                    if (bubbleView != null && bubbleView.getLayoutParams() != null) {
+                        ViewGroup.LayoutParams bLp = bubbleView.getLayoutParams();
+                        if (bLp.width != snap.origBubbleW || bLp.height != snap.origBubbleH) {
+                            bLp.width = snap.origBubbleW;
+                            bLp.height = snap.origBubbleH;
+                            bubbleView.setLayoutParams(bLp);
+                        }
+                    }
+                    for (int i = 0; i < menuCol.getChildCount(); i++) {
+                        View ch = menuCol.getChildAt(i);
+                        if (ch instanceof TextView) {
+                            TypographyNormalizer.restoreBaseline((TextView) ch);
+                        }
+                    }
+                    if (pw.isShowing() && snap.origPwW > 0) {
+                        pw.update(snap.origWinX, snap.origWinY, snap.origPwW, snap.origPwH);
+                    }
+                }
+                return false;
+            }
+
+            DisplayMetrics dm = root.getResources().getDisplayMetrics();
+            int screenW = dm.widthPixels;
+            int screenH = dm.heightPixels;
+            float density = dm.density;
+            if (screenW <= 0 || density <= 0f) return false;
+
+            PopupElasticSnapshot snap;
+            if (snapObj instanceof PopupElasticSnapshot) {
+                snap = (PopupElasticSnapshot) snapObj;
+            } else {
+                int oPwW = pw.getWidth();
+                int oPwH = pw.getHeight();
+                int oBubW = (bubbleView != null && bubbleView.getLayoutParams() != null) ? bubbleView.getLayoutParams().width : 0;
+                int oBubH = (bubbleView != null && bubbleView.getLayoutParams() != null) ? bubbleView.getLayoutParams().height : 0;
+                int oWinW = (winRoot != null && winRoot.getWidth() > 0) ? winRoot.getWidth() : oPwW;
+                if (oWinW <= 0) return false;
+                snap = new PopupElasticSnapshot(
+                        oPwW > 0 ? oPwW : oWinW,
+                        oPwH,
+                        oBubW,
+                        oBubH,
+                        menuCol.getPaddingLeft(),
+                        menuCol.getPaddingRight(),
+                        wlp != null ? wlp.x : winLoc[0],
+                        wlp != null ? wlp.y : winLoc[1],
+                        oWinW);
+                root.setTag(TypographyNormalizer.TAG_POPUP_ELASTIC_SNAP, snap);
+            }
+
+            List<TextView> rows = new ArrayList<>(menuCol.getChildCount());
+            float maxRowTextW = 0f;
+            int maxRowPadH = 0;
+            Locale activeLoc = TranslationEngine.getActiveLocale();
+            Typeface activeTf = UIFontManager.getActiveTypeface(root.getContext());
+            boolean mutated = false;
+
+            for (int i = 0; i < menuCol.getChildCount(); i++) {
+                View ch = menuCol.getChildAt(i);
+                if (ch.getVisibility() == View.GONE || !(ch instanceof TextView)) continue;
+                TextView tv = (TextView) ch;
+                CharSequence cs = tv.getText();
+                if (cs == null || cs.length() == 0) continue;
+                TypographyNormalizer.BaselineSnapshot b = TypographyNormalizer.captureBaseline(tv);
+                mutated |= TypographyNormalizer.prepareTextViewForPipeline(
+                        tv, cs, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
+                rows.add(tv);
+                float w = measureLabelDesiredWidth(tv);
+                if (w > maxRowTextW) maxRowTextW = w;
+                int pH = b.origPadL + b.origPadR;
+                if (pH > maxRowPadH) maxRowPadH = pH;
+            }
+            if (rows.isEmpty()) return mutated;
+
+            int wantLlPadL = snap.origLlPadL;
+            int wantLlPadR = snap.origLlPadR;
+            if (wantLlPadL > Math.round(4f * density) && wantLlPadR < Math.round(4f * density)) {
+                wantLlPadR = wantLlPadL;
+            }
+            if (menuCol.getPaddingLeft() != wantLlPadL || menuCol.getPaddingRight() != wantLlPadR) {
+                menuCol.setPadding(wantLlPadL, menuCol.getPaddingTop(), wantLlPadR, menuCol.getPaddingBottom());
+                mutated = true;
+            }
+
+            int bubPadH = (bubbleView != null) ? (bubbleView.getPaddingLeft() + bubbleView.getPaddingRight()) : 0;
+            int curWinW = (winRoot != null && winRoot.getWidth() > 0) ? winRoot.getWidth() : snap.origWinW;
+            int curBubW = (bubbleView != null && bubbleView.getWidth() > 0) ? bubbleView.getWidth() : curWinW;
+            int outerShadowChrome = Math.max(0, snap.origWinW - (snap.origBubbleW > 0 ? snap.origBubbleW : curBubW));
+            if (outerShadowChrome == 0 && bubbleView != null && bubbleView.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams bMlp = (ViewGroup.MarginLayoutParams) bubbleView.getLayoutParams();
+                outerShadowChrome = bMlp.leftMargin + bMlp.rightMargin + root.getPaddingLeft() + root.getPaddingRight();
+            }
+
+            int neededInnerW = (int) Math.ceil(maxRowTextW) + maxRowPadH + wantLlPadL + wantLlPadR + bubPadH + Math.round(8f * density);
+            int maxWinCapW = Math.min(Math.round(screenW * 0.72f), screenW - Math.round(16f * density));
+            int origBubPx = snap.origBubbleW > 0 ? snap.origBubbleW : curBubW;
+            int minWinW = snap.origWinW > 0 ? snap.origWinW : origBubPx + outerShadowChrome;
+            int targetWinW = TypographyNormalizer.clamp(neededInnerW + outerShadowChrome, minWinW, maxWinCapW);
+            int targetBubW = Math.max(origBubPx, targetWinW - outerShadowChrome);
+
+            if (bubbleView != null && bubbleView.getLayoutParams() != null) {
+                ViewGroup.LayoutParams bLp = bubbleView.getLayoutParams();
+                if (bLp.width != targetBubW) {
+                    bLp.width = targetBubW;
+                    bubbleView.setLayoutParams(bLp);
+                    mutated = true;
+                }
+                if (bLp.height > 0) {
+                    bLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    bubbleView.setLayoutParams(bLp);
+                }
+            }
+
+            int rowTextAvailW = Math.max(1, targetBubW - bubPadH - wantLlPadL - wantLlPadR - maxRowPadH - Math.round(2f * density));
+            int epoch = ++sSolverPassEpoch;
+            List<TypographyNormalizer.GroupMember> menuMembers = new ArrayList<>(rows.size());
+            boolean anyRowWrapped = false;
+            for (int i = 0; i < rows.size(); i++) {
+                TextView tv = rows.get(i);
+                TypographyNormalizer.BaselineSnapshot b = TypographyNormalizer.captureBaseline(tv);
+                menuMembers.add(new TypographyNormalizer.GroupMember(
+                        tv, tv.getText().toString(), rowTextAvailW, 0, b.origPadL, b.origPadR, true, tv));
+            }
+            TypographyNormalizer.GroupSolveResult gRes = TypographyNormalizer.solvePeerGroup(
+                    menuMembers, TypographyNormalizer.ARCHETYPE_ELASTIC_2D, Math.round(48f * density), activeLoc, activeTf, dm);
+            for (int i = 0; i < menuMembers.size(); i++) {
+                TypographyNormalizer.GroupMember m = menuMembers.get(i);
+                if (m.plan == null) continue;
+                float applyPx = m.plan.extremeOutlier ? m.plan.targetPx : gRes.groupPx;
+                if (m.plan.targetLines >= 2) {
+                    anyRowWrapped = true;
+                    if (m.tv.getLayoutParams() != null
+                            && m.tv.getLayoutParams().height == ViewGroup.LayoutParams.MATCH_PARENT) {
+                        ViewGroup.LayoutParams rlp = m.tv.getLayoutParams();
+                        rlp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                        m.tv.setLayoutParams(rlp);
+                    }
+                }
+                mutated |= TypographyNormalizer.applySolvedPlanToTextView(
+                        m.tv,
+                        m.plan,
+                        applyPx,
+                        m.safePadL,
+                        m.safePadR,
+                        false,
+                        false,
+                        0,
+                        epoch,
+                        "popupMenu_" + targetBubW);
+            }
+
+            int targetWinH = snap.origPwH;
+            if (anyRowWrapped) {
+                root.measure(
+                        View.MeasureSpec.makeMeasureSpec(targetWinW, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(Math.max(1, screenH - Math.round(32f * density)), View.MeasureSpec.AT_MOST));
+                int measuredH = root.getMeasuredHeight();
+                if (measuredH > 0) {
+                    targetWinH = Math.min(Math.max(snap.origPwH, measuredH + Math.round(8f * density)),
+                            screenH - Math.round(24f * density));
+                }
+            } else {
+                for (int i = 0; i < menuCol.getChildCount(); i++) {
+                    View ch = menuCol.getChildAt(i);
+                    if (ch instanceof TextView) {
+                        TypographyNormalizer.BaselineSnapshot b = TypographyNormalizer.captureBaseline((TextView) ch);
+                        ViewGroup.LayoutParams rlp = ch.getLayoutParams();
+                        if (b != null && rlp != null && rlp.height != b.origLpHeight) {
+                            rlp.height = b.origLpHeight;
+                            ch.setLayoutParams(rlp);
+                        }
+                    }
+                }
+            }
+
+            boolean rightAnchoredGravity = wlp != null
+                    && (((wlp.gravity & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT)
+                    || (Build.VERSION.SDK_INT >= 17 && (wlp.gravity & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) == Gravity.END));
+            int newX = snap.origWinX;
+            if (rightAnchoredGravity) {
+                int rightMargin = Math.max(Math.round(8f * density), snap.origWinX);
+                int maxWByLeftEdge = screenW - rightMargin - Math.round(8f * density);
+                if (targetWinW > maxWByLeftEdge && maxWByLeftEdge > 0) {
+                    targetWinW = maxWByLeftEdge;
+                }
+            } else {
+                int deltaW = targetWinW - snap.origWinW;
+                int screenMargin = Math.round(8f * density);
+                if (winLoc[0] + snap.origWinW >= screenW * 0.50f || snap.origWinX + targetWinW > screenW - screenMargin) {
+                    newX = snap.origWinX - deltaW;
+                }
+                newX = TypographyNormalizer.clamp(newX, screenMargin, Math.max(screenMargin, screenW - screenMargin - targetWinW));
+            }
+
+            String applySig = targetWinW + "|" + targetWinH + "|" + newX;
+            if (!applySig.equals(snap.lastAppliedSig) && pw.isShowing()) {
+                snap.lastAppliedSig = applySig;
+                pw.update(newX, snap.origWinY, targetWinW, targetWinH > 0 ? targetWinH : ViewGroup.LayoutParams.WRAP_CONTENT);
+                mutated = true;
+            }
+            return mutated;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static LinearLayout findVerticalMenuColumn(View v, int depth) {
+        if (v == null || depth > 8 || v.getVisibility() == View.GONE) return null;
+        if (v instanceof ScrollView || v.getClass().getName().endsWith("RecyclerView") || v instanceof android.widget.ListView) {
+            return null;
+        }
+        if (v instanceof LinearLayout && ((LinearLayout) v).getOrientation() == LinearLayout.VERTICAL) {
+            LinearLayout ll = (LinearLayout) v;
+            int visTextRows = 0;
+            float firstSize = -1f;
+            boolean uniform = true;
+            boolean allLeafText = true;
+            for (int i = 0; i < ll.getChildCount(); i++) {
+                View ch = ll.getChildAt(i);
+                if (ch.getVisibility() == View.GONE) continue;
+                if (!(ch instanceof TextView) || ch instanceof CompoundButton) {
+                    allLeafText = false;
+                    break;
+                }
+                TextView tv = (TextView) ch;
+                if (tv.getText() == null || tv.getText().length() == 0) continue;
+                TypographyNormalizer.BaselineSnapshot b = TypographyNormalizer.captureBaseline(tv);
+                float sz = b != null ? b.origTextSize : tv.getTextSize();
+                if (firstSize < 0f) firstSize = sz;
+                else if (Math.abs(firstSize - sz) > 1.5f) uniform = false;
+                visTextRows++;
+            }
+            if (allLeafText && uniform && visTextRows >= 2) {
+                return ll;
+            }
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                LinearLayout found = findVerticalMenuColumn(vg.getChildAt(i), depth + 1);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Fixes CommonDialog title horizontal axis asymmetry caused by uneven left/right margins,
+     * uneven paddings, or asymmetric INVISIBLE corner placeholders, cleanly skipping any header
+     * flanked by visible corner buttons and preserving original baselines for toggle OFF restore.
+     */
+    public static boolean normalizeDialogTitles(View root) {
+        if (root == null) return false;
+        boolean isDialog = Boolean.TRUE.equals(root.getTag(0x7e090d04)); // TAG_KEY_DIALOG_ROOT
+        View folderEt = findView(root, "folder_name_et", 0);
+        if (!isDialog && folderEt == null) return false;
+        if (findView(root, "cloud_sync_switch_container", 0x7f09037a) != null
+                || findView(root, "cloud_sync_switch", 0x7f090379) != null) {
+            return false;
+        }
+        boolean mutated = false;
+        try {
+            if (!TranslationEngine.isTextAutoFitActive()) {
+                return restoreDialogTitlesRecursive(root);
+            }
+            if (folderEt != null && folderEt.getParent() instanceof ViewGroup) {
+                ViewGroup card = (ViewGroup) folderEt.getParent();
+                for (int i = 0; i < card.getChildCount(); i++) {
+                    View ch = card.getChildAt(i);
+                    if (ch == folderEt) break;
+                    if (ch instanceof TextView && ch.getVisibility() == View.VISIBLE) {
+                        mutated |= symCenterDialogTitleView((TextView) ch);
+                        break;
+                    }
+                }
+            }
+            Context ctx = root.getContext();
+            if (ctx != null) {
+                String[] titleNames = new String[]{"title_tv", "tv_title", "dialog_title"};
+                for (String tName : titleNames) {
+                    int idT = LibreResourceResolver.resolveViewId(ctx, tName, 0);
+                    if (idT == 0) continue;
+                    View tvRaw = root.findViewById(idT);
+                    if (tvRaw instanceof TextView && tvRaw.getVisibility() == View.VISIBLE) {
+                        TextView tv = (TextView) tvRaw;
+                        if (isDialogTitleCenteredIntent(tv)) {
+                            mutated |= symCenterDialogTitleView(tv);
+                        }
                     }
                 }
             }
         } catch (Throwable ignored) {}
+        return mutated;
+    }
+
+    private static boolean isDialogTitleCenteredIntent(TextView tv) {
+        if (tv == null || tv.getText() == null) return false;
+        String s = tv.getText().toString();
+        if (s.isEmpty() || s.length() > 48 || s.contains("\n\n")) return false;
+        int grav = tv.getGravity() & Gravity.HORIZONTAL_GRAVITY_MASK;
+        if (grav == Gravity.CENTER_HORIZONTAL) return true;
+        if (Build.VERSION.SDK_INT >= 17 && tv.getTextAlignment() == View.TEXT_ALIGNMENT_CENTER) return true;
+        if (tv.getLayoutParams() instanceof RelativeLayout.LayoutParams) {
+            int[] rules = ((RelativeLayout.LayoutParams) tv.getLayoutParams()).getRules();
+            return rules[RelativeLayout.CENTER_HORIZONTAL] != 0 || rules[RelativeLayout.CENTER_IN_PARENT] != 0;
+        }
+        return tv.getLayoutParams() instanceof LinearLayout.LayoutParams
+                && (((LinearLayout.LayoutParams) tv.getLayoutParams()).gravity & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.CENTER_HORIZONTAL;
+    }
+
+    private static boolean symCenterDialogTitleView(TextView tv) {
+        if (tv == null || !(tv.getParent() instanceof ViewGroup)) return false;
+        ViewGroup parent = (ViewGroup) tv.getParent();
+        if (parent instanceof ScrollView || parent.getClass().getName().endsWith("RecyclerView")) {
+            return false;
+        }
+        // Abort if any visible side corner button overlaps or shares the header horizontal band.
+        int tTop = tv.getTop();
+        int tBot = tv.getBottom();
+        boolean isHorizontalRow = parent instanceof LinearLayout
+                && ((LinearLayout) parent).getOrientation() == LinearLayout.HORIZONTAL;
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View sib = parent.getChildAt(i);
+            if (sib == null || sib == tv) continue;
+            if (sib.getVisibility() == View.VISIBLE) {
+                boolean sameBand = isHorizontalRow || (tBot > tTop && sib.getBottom() > tTop + 4 && sib.getTop() < tBot - 4);
+                if (sameBand && sib.getWidth() > 0 && !(sib instanceof android.widget.EditText)) {
+                    return false;
+                }
+            } else if (sib.getVisibility() == View.INVISIBLE && isHorizontalRow) {
+                if (sib.getTag(TypographyNormalizer.TAG_ORIG_VISIBILITY) == null) {
+                    sib.setTag(TypographyNormalizer.TAG_ORIG_VISIBILITY, Integer.valueOf(View.INVISIBLE));
+                }
+                sib.setVisibility(View.GONE);
+            }
+        }
+
+        if (!(tv.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP) instanceof DialogTitleSnapshot)) {
+            tv.setTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP, new DialogTitleSnapshot(tv));
+        }
+        DialogTitleSnapshot snap = (DialogTitleSnapshot) tv.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP);
+        boolean mutated = false;
+
+        int symPad = Math.min(snap.origPadL, snap.origPadR);
+        if (tv.getPaddingLeft() != symPad || tv.getPaddingRight() != symPad) {
+            tv.setPadding(symPad, tv.getPaddingTop(), symPad, tv.getPaddingBottom());
+            mutated = true;
+        }
+        int wantGrav = (snap.origGravity & Gravity.VERTICAL_GRAVITY_MASK) | Gravity.CENTER_HORIZONTAL;
+        if (wantGrav == Gravity.CENTER_HORIZONTAL) {
+            wantGrav = Gravity.CENTER;
+        }
+        if (tv.getGravity() != wantGrav) {
+            tv.setGravity(wantGrav);
+            mutated = true;
+        }
+        if (Build.VERSION.SDK_INT >= 17 && tv.getTextAlignment() != View.TEXT_ALIGNMENT_CENTER) {
+            tv.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+            mutated = true;
+        }
+        ViewGroup.LayoutParams lp = tv.getLayoutParams();
+        if (lp != null) {
+            boolean lpChanged = false;
+            if (!isHorizontalRow && lp.width != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+                lpChanged = true;
+            }
+            if (lp instanceof LinearLayout.LayoutParams) {
+                LinearLayout.LayoutParams llp = (LinearLayout.LayoutParams) lp;
+                if (llp.gravity != Gravity.CENTER_HORIZONTAL) {
+                    llp.gravity = Gravity.CENTER_HORIZONTAL;
+                    lpChanged = true;
+                }
+            }
+            if (lp instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                int symM = isHorizontalRow ? Math.min(snap.origMarginL, snap.origMarginR) : Math.max(snap.origMarginL, snap.origMarginR);
+                if (mlp.leftMargin != symM || mlp.rightMargin != symM) {
+                    mlp.leftMargin = symM;
+                    mlp.rightMargin = symM;
+                    lpChanged = true;
+                }
+                if (Build.VERSION.SDK_INT >= 17 && (mlp.getMarginStart() != symM || mlp.getMarginEnd() != symM)) {
+                    mlp.setMarginStart(symM);
+                    mlp.setMarginEnd(symM);
+                    lpChanged = true;
+                }
+            }
+            if (lpChanged) {
+                tv.setLayoutParams(lp);
+                mutated = true;
+            }
+        }
+        if (mutated) {
+            tv.requestLayout();
+            tv.invalidate();
+        }
+        return mutated;
+    }
+
+    private static boolean restoreDialogTitlesRecursive(View v) {
+        if (v == null) return false;
+        boolean mutated = false;
+        Object visObj = v.getTag(TypographyNormalizer.TAG_ORIG_VISIBILITY);
+        if (visObj instanceof Integer && v.getVisibility() != (Integer) visObj) {
+            v.setVisibility((Integer) visObj);
+            mutated = true;
+        }
+        if (v instanceof TextView && v.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP) instanceof DialogTitleSnapshot) {
+            TextView tv = (TextView) v;
+            DialogTitleSnapshot s = (DialogTitleSnapshot) v.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP);
+            if (tv.getPaddingLeft() != s.origPadL || tv.getPaddingRight() != s.origPadR) {
+                tv.setPadding(s.origPadL, tv.getPaddingTop(), s.origPadR, tv.getPaddingBottom());
+                mutated = true;
+            }
+            if (tv.getGravity() != s.origGravity) {
+                tv.setGravity(s.origGravity);
+                mutated = true;
+            }
+            if (Build.VERSION.SDK_INT >= 17 && tv.getTextAlignment() != s.origTextAlignment) {
+                tv.setTextAlignment(s.origTextAlignment);
+                mutated = true;
+            }
+            ViewGroup.LayoutParams lp = tv.getLayoutParams();
+            if (lp != null) {
+                boolean lpChg = false;
+                if (lp.width != s.origWidth) {
+                    lp.width = s.origWidth;
+                    lpChg = true;
+                }
+                if (lp instanceof LinearLayout.LayoutParams && ((LinearLayout.LayoutParams) lp).gravity != s.origLlpGravity) {
+                    ((LinearLayout.LayoutParams) lp).gravity = s.origLlpGravity;
+                    lpChg = true;
+                }
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.leftMargin != s.origMarginL || mlp.rightMargin != s.origMarginR) {
+                        mlp.leftMargin = s.origMarginL;
+                        mlp.rightMargin = s.origMarginR;
+                        lpChg = true;
+                    }
+                    if (Build.VERSION.SDK_INT >= 17 && (mlp.getMarginStart() != s.origMarginS || mlp.getMarginEnd() != s.origMarginE)) {
+                        mlp.setMarginStart(s.origMarginS);
+                        mlp.setMarginEnd(s.origMarginE);
+                        lpChg = true;
+                    }
+                }
+                if (lpChg) {
+                    tv.setLayoutParams(lp);
+                    mutated = true;
+                }
+            }
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                mutated |= restoreDialogTitlesRecursive(vg.getChildAt(i));
+            }
+        }
+        return mutated;
+    }
+
+    /**
+     * Phase 2 static horizontal button-strip solver for generic horizontal icon-above-text rows
+     * inside popups and sub-panels (excluding RecyclerView/ListView/ScrollView lists),
+     * plus clean full restoration when Text Auto-Fit is toggled OFF.
+     */
+    public static boolean solveAllCanvasStripPeerGroups(View root) {
+        if (root == null || !TranslationEngine.isTextAutoFitActive()) return false;
+        return solveGenericIconRowsRecursive(root, ++sSolverPassEpoch, 0);
+    }
+
+    private static boolean solveGenericIconRowsRecursive(View v, int epoch, int depth) {
+        if (v == null || depth > 14 || v.getVisibility() == View.GONE) return false;
+        String cls = v.getClass().getName();
+        if ("libre_settings_root".equals(v.getTag())
+                || cls.endsWith("RecyclerView")
+                || cls.endsWith("ListView")
+                || cls.endsWith("GridView")
+                || cls.endsWith("ShapeSettingView")
+                || cls.endsWith("XuanQuSettingView")
+                || cls.endsWith("LiquefySettingPhoneView")
+                || isExportRowView(v)) {
+            return false;
+        }
+        boolean mutated = false;
+        if (v instanceof LinearLayout && ((LinearLayout) v).getOrientation() == LinearLayout.HORIZONTAL) {
+            LinearLayout row = (LinearLayout) v;
+            if (row.getWidth() > 0) {
+                float density = row.getResources().getDisplayMetrics().density;
+                List<TypographyNormalizer.GroupMember> members = new ArrayList<>();
+                for (int i = 0; i < row.getChildCount(); i++) {
+                    View ch = row.getChildAt(i);
+                    if (ch.getVisibility() == View.GONE || !isIconAboveTextButton(ch, density)) continue;
+                    TextView tv = findDirectSlotTextView(ch);
+                    if (tv == null || tv.getText() == null || tv.getText().length() == 0) continue;
+                    if (tv.getTag(TypographyNormalizer.TAG_PHASE2_MANAGED_EPOCH) != null
+                            && ch.getWidth() <= 0) {
+                        continue;
+                    }
+                    int slotW = ch.getWidth() > 0 ? ch.getWidth() : (row.getWidth() / Math.max(1, row.getChildCount()));
+                    if (slotW <= 0) continue;
+                    int safePad = TypographyNormalizer.clamp(
+                            Math.round(slotW * 0.08f), Math.round(3f * density), Math.round(7f * density));
+                    int textAvail = Math.max(1, slotW - ch.getPaddingLeft() - ch.getPaddingRight() - 2 * safePad);
+                    members.add(new TypographyNormalizer.GroupMember(
+                            tv, tv.getText().toString(), textAvail, 0, safePad, safePad, true, ch));
+                }
+                if (members.size() >= 2) {
+                    mutated |= solveStripPeerGroup(
+                            row,
+                            members,
+                            TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP,
+                            Math.round(18f * density),
+                            true,
+                            false,
+                            false,
+                            0,
+                            epoch,
+                            "genericIconRow",
+                            density);
+                }
+            }
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                mutated |= solveGenericIconRowsRecursive(vg.getChildAt(i), epoch, depth + 1);
+            }
+        }
+        return mutated;
+    }
+
+    public static boolean isPhase2ManagedStripView(TextView tv) {
+        if (tv == null) return false;
+        if (tv.getTag(TypographyNormalizer.TAG_PHASE2_MANAGED_EPOCH) != null) {
+            return true;
+        }
+        if (tv.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP) != null) {
+            return true;
+        }
+        ViewParent p = tv.getParent();
+        for (int depth = 0; p instanceof View && depth < 5; depth++) {
+            View pv = (View) p;
+            String cls = pv.getClass().getName();
+            if (cls.endsWith("ShapeSettingView")
+                    || cls.endsWith("XuanQuSettingView")
+                    || cls.endsWith("LiquefySettingPhoneView")) {
+                return true;
+            }
+            p = pv.getParent();
+        }
+        if (hasBoundPopupWindow(tv)) {
+            View root = tv.getRootView();
+            if (findView(root, "nsv_canvas", 0x7f090a13) == null
+                    && findView(root, "nsv_setting", 0x7f090a17) == null
+                    && findView(root, "nsv_import", 0x7f090a15) == null
+                    && findView(root, "dialog_setting_iv", 0) == null
+                    && findView(root, "toggleView", 0) == null
+                    && findFastKeyPopupHeaderView(root, 0) == null) {
+                ViewParent colP = tv.getParent();
+                if (colP instanceof LinearLayout
+                        && ((LinearLayout) colP).getOrientation() == LinearLayout.VERTICAL
+                        && findVerticalMenuColumn((View) colP, 0) == colP) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static boolean restoreAllSolverStates(View root) {
+        if (root == null) return false;
+        boolean mutated = false;
+        mutated |= optimizeElasticPopupMenus(root);
+        mutated |= restoreDialogTitlesRecursive(root);
+        mutated |= restoreSolverNodeRecursive(root, 0);
+        return mutated;
+    }
+
+    private static boolean restoreSolverNodeRecursive(View v, int depth) {
+        if (v == null || depth > 22) return false;
+        boolean mutated = false;
+        if ("libre_settings_root".equals(v.getTag())) return false;
+        mutated |= TypographyNormalizer.restoreContainerBaseline(v);
+        if (v instanceof TextView) {
+            mutated |= TypographyNormalizer.restoreBaseline((TextView) v);
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                mutated |= restoreSolverNodeRecursive(vg.getChildAt(i), depth + 1);
+            }
+        }
         return mutated;
     }
 
@@ -6160,53 +7631,25 @@ public final class WorkspaceUiController {
                     }
                 }
 
-                float floorSp = (segW <= 64f * density) ? 8.5f : 9.0f;
-                float floorPx = Math.min(origPx, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, floorSp, dm));
-                float minPx = Math.min(origPx, Math.max(floorPx, origPx * 0.72f));
+                float floorPx = TypographyNormalizer.computeProtectedFloorPx(origPx, dm);
 
                 TextPaint measureTp = TypographyNormalizer.getScratchTextPaint(textPaint);
                 measureTp.setTextAlign(Paint.Align.LEFT);
 
+                // Phase 1 / Archetype IV ToggleSwitchView 5-State Evaluation:
+                // Try 1 line @ 100%, then 2 lines @ 100% with FontMetrics guard before any downscale.
                 float targetPx = origPx;
-                boolean allFitSingle = false;
-                for (int step = 0; step < 8; step++) {
-                    allFitSingle = true;
-                    for (int i = 0; i < n; i++) {
-                        TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
-                        measureTp.setTextSize(targetPx);
-                        measureTp.setTextScaleX(1.0f);
-                        float mw = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
-                        float mh = TypographyNormalizer.measureFontMetricsLineHeight(measureTp);
-                        if (mw > availSegW + 0.5f || mh > segH + 1.5f) {
-                            allFitSingle = false;
-                            break;
-                        }
-                    }
-                    if (allFitSingle || targetPx <= minPx) break;
-                    targetPx = Math.max(minPx, targetPx * 0.94f);
-                }
-
                 float targetScaleX = 1.0f;
-                if (!allFitSingle && allowScaleX) {
-                    float maxW = 0f;
-                    measureTp.setTextSize(targetPx);
+                boolean allFitSingle = true;
+                for (int i = 0; i < n; i++) {
+                    TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                    measureTp.setTextSize(origPx);
                     measureTp.setTextScaleX(1.0f);
-                    for (int i = 0; i < n; i++) {
-                        TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
-                        float mw = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
-                        if (mw > maxW) maxW = mw;
-                    }
-                    if (maxW > availSegW + 0.5f && maxW > 1f) {
-                        targetScaleX = Math.max(0.90f, Math.min(1.0f, availSegW / maxW));
-                        allFitSingle = true;
-                        for (int i = 0; i < n; i++) {
-                            TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
-                            measureTp.setTextScaleX(targetScaleX);
-                            if (TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp) > availSegW + 0.5f) {
-                                allFitSingle = false;
-                                break;
-                            }
-                        }
+                    float mw = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
+                    float mh = TypographyNormalizer.measureFontMetricsLineHeight(measureTp);
+                    if (mw > availSegW + 0.5f || mh > segH + 1.5f) {
+                        allFitSingle = false;
+                        break;
                     }
                 }
 
@@ -6214,24 +7657,121 @@ public final class WorkspaceUiController {
                 if (!allFitSingle) {
                     boolean canAllTwo = true;
                     for (int i = 0; i < n; i++) {
+                        int sg = TypographyNormalizer.classifyScript(labels[i]);
+                        boolean canBreak = TypographyNormalizer.hasNaturalBreakToken(labels[i])
+                                || TypographyNormalizer.allowsUnspacedLineBreak(labels[i]);
                         TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
-                        measureTp.setTextSize(targetPx);
+                        measureTp.setTextSize(origPx);
                         measureTp.setTextScaleX(1.0f);
+                        float mw1 = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
+                        if (mw1 <= availSegW + 0.5f && TypographyNormalizer.measureFontMetricsLineHeight(measureTp) <= segH + 1.5f) {
+                            continue;
+                        }
+                        if (!canBreak) {
+                            canAllTwo = false;
+                            break;
+                        }
                         float fm2H = 2f * TypographyNormalizer.measureFontMetricsLineHeight(measureTp);
                         StaticLayout slTest = TypographyNormalizer.buildStaticLayout(
                                 labels[i], measureTp, availSegW, Layout.Alignment.ALIGN_CENTER,
                                 0.96f, 0f, true, 0, null, TypographyNormalizer.containsRtlChars(labels[i]));
                         if (slTest.getLineCount() > 2
                                 || TypographyNormalizer.getMaxLineWidth(slTest) > availSegW + 0.5f
-                                || slTest.getHeight() > segH + 1f
-                                || fm2H > segH + 2f) {
+                                || TypographyNormalizer.hasDisallowedWordSplit(slTest, labels[i], sg)
+                                || slTest.getHeight() > segH + 1.5f
+                                || fm2H > segH + 2.5f) {
                             canAllTwo = false;
                             break;
                         }
                     }
                     if (canAllTwo) {
                         useTwoLines = true;
-                        targetScaleX = 1.0f;
+                    }
+                }
+
+                if (!allFitSingle && !useTwoLines) {
+                    for (int step = 0; step < 8; step++) {
+                        targetPx = (step == 7) ? floorPx : Math.max(floorPx, targetPx * 0.94f);
+                        allFitSingle = true;
+                        for (int i = 0; i < n; i++) {
+                            TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                            measureTp.setTextSize(targetPx);
+                            measureTp.setTextScaleX(1.0f);
+                            float mw = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
+                            float mh = TypographyNormalizer.measureFontMetricsLineHeight(measureTp);
+                            if (mw > availSegW + 0.5f || mh > segH + 1.5f) {
+                                allFitSingle = false;
+                                break;
+                            }
+                        }
+                        if (allFitSingle || targetPx <= floorPx + 0.05f) break;
+                    }
+
+                    if (!allFitSingle && allowScaleX) {
+                        float maxW = 0f;
+                        measureTp.setTextSize(targetPx);
+                        measureTp.setTextScaleX(1.0f);
+                        for (int i = 0; i < n; i++) {
+                            TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                            float mw = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
+                            if (mw > maxW) maxW = mw;
+                        }
+                        if (maxW > availSegW + 0.5f && maxW > 1f) {
+                            targetScaleX = Math.max(0.90f, Math.min(1.0f, availSegW / maxW));
+                            allFitSingle = true;
+                            for (int i = 0; i < n; i++) {
+                                TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                                measureTp.setTextScaleX(targetScaleX);
+                                if (TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp) > availSegW + 0.5f) {
+                                    allFitSingle = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!allFitSingle) {
+                        float curTwoPx = Math.min(origPx * 0.92f, targetPx > floorPx ? targetPx : origPx * 0.92f);
+                        for (int step = 0; step < 6; step++) {
+                            if (step == 5 || curTwoPx < floorPx) curTwoPx = floorPx;
+                            boolean canTwoDown = true;
+                            for (int i = 0; i < n; i++) {
+                                int sg = TypographyNormalizer.classifyScript(labels[i]);
+                                boolean canBreak = TypographyNormalizer.hasNaturalBreakToken(labels[i])
+                                        || TypographyNormalizer.allowsUnspacedLineBreak(labels[i]);
+                                TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                                measureTp.setTextSize(curTwoPx);
+                                measureTp.setTextScaleX(1.0f);
+                                float mw1 = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
+                                if (mw1 <= availSegW + 0.5f && TypographyNormalizer.measureFontMetricsLineHeight(measureTp) <= segH + 1.5f) {
+                                    continue;
+                                }
+                                if (!canBreak) {
+                                    canTwoDown = false;
+                                    break;
+                                }
+                                float fm2H = 2f * TypographyNormalizer.measureFontMetricsLineHeight(measureTp);
+                                StaticLayout slTest = TypographyNormalizer.buildStaticLayout(
+                                        labels[i], measureTp, availSegW, Layout.Alignment.ALIGN_CENTER,
+                                        0.96f, 0f, true, 0, null, TypographyNormalizer.containsRtlChars(labels[i]));
+                                if (slTest.getLineCount() > 2
+                                        || TypographyNormalizer.getMaxLineWidth(slTest) > availSegW + 0.5f
+                                        || TypographyNormalizer.hasDisallowedWordSplit(slTest, labels[i], sg)
+                                        || slTest.getHeight() > segH + 1.5f
+                                        || fm2H > segH + 2.5f) {
+                                    canTwoDown = false;
+                                    break;
+                                }
+                            }
+                            if (canTwoDown) {
+                                targetPx = curTwoPx;
+                                useTwoLines = true;
+                                targetScaleX = 1.0f;
+                                break;
+                            }
+                            if (curTwoPx <= floorPx + 0.05f) break;
+                            curTwoPx = Math.max(floorPx, curTwoPx * 0.94f);
+                        }
                     }
                 }
 

@@ -1454,6 +1454,7 @@ public final class TranslationEngine {
     }
 
     private static boolean applyTextAutoFitSubtree(View rootView) {
+        boolean fitActive = isTextAutoFitActive();
         boolean polishActive = isPopupOrDialogRoot(rootView)
                 && WorkspaceUiController.isCanvasPopupPolishActive();
         if (polishActive) {
@@ -1463,7 +1464,17 @@ public final class TranslationEngine {
             WorkspaceUiController.centerAllIconButtonsRecursively(rootView);
             WorkspaceUiController.compactPaintSettingsScrollArea(rootView);
         }
-        boolean changed = applyTextAutoFitHierarchyTracked(rootView);
+        boolean changed = false;
+        if (fitActive && isPopupOrDialogRoot(rootView)) {
+            changed |= WorkspaceUiController.normalizeDialogTitles(rootView);
+        }
+        changed |= applyTextAutoFitHierarchyTracked(rootView);
+        if (fitActive) {
+            changed |= WorkspaceUiController.optimizeElasticPopupMenus(rootView);
+            changed |= WorkspaceUiController.solveAllCanvasStripPeerGroups(rootView);
+        } else {
+            changed |= WorkspaceUiController.restoreAllSolverStates(rootView);
+        }
         if (polishActive) {
             WorkspaceUiController.resizePaintSettingsPopup(rootView);
             WorkspaceUiController.expandLeftToolGridIfApplicable(rootView);
@@ -1819,6 +1830,7 @@ public final class TranslationEngine {
 
     private static void captureOrigTextViewState(TextView tv) {
         if (tv == null) return;
+        TypographyNormalizer.captureBaseline(tv);
         if (tv.getTag(TAG_KEY_ORIG_TEXT_SIZE) == null) {
             tv.setTag(TAG_KEY_ORIG_TEXT_SIZE, Float.valueOf(tv.getTextSize()));
         }
@@ -1848,7 +1860,7 @@ public final class TranslationEngine {
 
     private static boolean restoreOrigTextViewState(TextView tv) {
         if (tv == null) return false;
-        boolean mutated = false;
+        boolean mutated = TypographyNormalizer.restoreBaseline(tv);
         Object origSize = tv.getTag(TAG_KEY_ORIG_TEXT_SIZE);
         if (origSize instanceof Float && (Float) origSize > 0f) {
             float target = (Float) origSize;
@@ -2036,9 +2048,17 @@ public final class TranslationEngine {
             return 0;
         }
         ViewGroup.LayoutParams slotLp = owningSlot.getLayoutParams();
-        boolean boundedSlotH = (slotLp != null && slotLp.height > 0)
-                || (owningSlot.getParent() instanceof View && ((View) owningSlot.getParent()).getHeight() > 0);
-        if (!boundedSlotH) return 0;
+        boolean fixedSelfH = slotLp != null && slotLp.height > 0;
+        boolean fixedParentH = false;
+        if (!fixedSelfH && owningSlot.getParent() instanceof View) {
+            View p = (View) owningSlot.getParent();
+            ViewGroup.LayoutParams pLp = p.getLayoutParams();
+            if (pLp != null && pLp.height > 0 && (slotLp == null || slotLp.height == ViewGroup.LayoutParams.MATCH_PARENT
+                    || (slotLp instanceof LinearLayout.LayoutParams && ((LinearLayout.LayoutParams) slotLp).weight > 0f))) {
+                fixedParentH = true;
+            }
+        }
+        if (!fixedSelfH && !fixedParentH) return 0;
         int availH = owningSlot.getHeight() - owningSlot.getPaddingTop() - owningSlot.getPaddingBottom()
                 - tv.getCompoundPaddingTop() - tv.getCompoundPaddingBottom();
         View cur = tv;
@@ -2135,6 +2155,25 @@ public final class TranslationEngine {
                 && WorkspaceUiController.isBlendOrPaperLabel(tv);
     }
 
+    private static boolean isRigidHeaderWithRightIcons(TextView tv, float density) {
+        if (tv == null || !(tv.getParent() instanceof ViewGroup)) return false;
+        ViewGroup parent = (ViewGroup) tv.getParent();
+        int tvLeft = tv.getLeft();
+        int tvTop = tv.getTop();
+        int tvBot = tv.getBottom();
+        int rightIcons = 0;
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View sib = parent.getChildAt(i);
+            if (sib == null || sib == tv || sib.getVisibility() != View.VISIBLE || sib.getWidth() <= 0) continue;
+            boolean yOverlap = (tvBot <= tvTop) || (sib.getBottom() > tvTop + 2 && sib.getTop() < tvBot - 2);
+            if (yOverlap && sib.getLeft() >= tvLeft + Math.round(12f * density)
+                    && (sib instanceof android.widget.ImageView || sib.isClickable())) {
+                rightIcons++;
+            }
+        }
+        return rightIcons >= 2;
+    }
+
     public static boolean fitNarrowTextView(TextView tv) {
         if (tv == null || tv instanceof android.widget.EditText) return false;
         try {
@@ -2154,6 +2193,11 @@ public final class TranslationEngine {
             boolean dynamicI18n = isDynamicI18nEnabled();
             boolean mutated = TypographyNormalizer.prepareTextViewForPipeline(
                     tv, str, activeLocale, activeTf, dynamicI18n);
+
+            if (WorkspaceUiController.isPaperNameView(tv)
+                    || WorkspaceUiController.isPhase2ManagedStripView(tv)) {
+                return mutated;
+            }
 
             if (str.length() > 64 || str.contains("\n\n") || str.contains(". ") || isDynamicNumericReadoutText(str)) {
                 return mutated;
@@ -2318,6 +2362,12 @@ public final class TranslationEngine {
             }
             slotInnerW = Math.max(1, slotInnerW);
 
+            boolean hasRightIconsHeader = !inMainActivity && (origSingleLine || origMaxLines == 1)
+                    && isRigidHeaderWithRightIcons(tv, density);
+            boolean isRigid1DStrip = hasRightIconsHeader
+                    || (WorkspaceUiController.isBlendOrPaperLabel(tv) && !WorkspaceUiController.isPaperNameView(tv))
+                    || (isButtonRowOrTabChild(tv) && origMaxLines == 1);
+
             boolean isButtonLike = tv instanceof android.widget.Button
                     || tv.isClickable()
                     || (vp instanceof View && ((View) vp).isClickable());
@@ -2330,10 +2380,13 @@ public final class TranslationEngine {
             boolean useSafeZone = !inMainActivity && isPillSlotOrTab && slotInnerW <= Math.round(240f * density);
             int safeInset = useSafeZone
                     ? TypographyNormalizer.clamp(Math.round(slotInnerW * 0.08f), Math.round(4f * density), Math.round(10f * density))
-                    : 0;
+                    : (hasRightIconsHeader ? Math.round(4f * density) : 0);
 
             int desiredPadL = origPadL;
             int desiredPadR = Math.max(origPadR, rightObstaclePad);
+            if (hasRightIconsHeader) {
+                desiredPadR = Math.max(desiredPadR, Math.round(4f * density));
+            }
             if (useSafeZone && tvFillsContainer && tv.getMaxLines() <= 2) {
                 desiredPadL = Math.max(desiredPadL, safeInset);
                 desiredPadR = Math.max(desiredPadR, safeInset);
@@ -2397,10 +2450,9 @@ public final class TranslationEngine {
                     && !vertOverflowOrig
                     && lc <= 1;
 
-            boolean narrowEligible = hasVertIcon || rightObstaclePad > 0
+            boolean narrowEligible = hasVertIcon || rightObstaclePad > 0 || hasRightIconsHeader
                     || (isPillSlotOrTab && !isInsideListOrSettingsRow(tv));
             if (origFitsSingle && !(useSafeZone && (desiredPadL != tv.getPaddingLeft() || desiredPadR != tv.getPaddingRight()))) {
-                // Layer C & Invariant check: string fits cleanly at original baseline; restore if recycled.
                 if (Math.abs(tv.getTextSize() - origPx) >= 0.5f) {
                     tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, origPx);
                     mutated = true;
@@ -2451,117 +2503,51 @@ public final class TranslationEngine {
                 }
                 return mutated;
             }
-            if (safeTextAvailW > Math.round(160f * density) && !overflowsOrig && rightObstaclePad == 0) {
+            if (safeTextAvailW > Math.round(160f * density) && !overflowsOrig && rightObstaclePad == 0 && !hasRightIconsHeader) {
                 if (!mutated) {
                     tv.setTag(TAG_KEY_LAST_FIT_QUICK, Integer.valueOf(quickHash));
                 }
                 return mutated;
             }
 
-            // 5-Step Escalation Ladder (Step 1 is container expansion in WorkspaceUiController).
-            float floorSp = (slotOuterW <= Math.round(64f * density)) ? 8.5f : 9.0f;
-            float floorPx = Math.min(origPx, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, floorSp, dm));
-            float ratioMinPx = origPx * (inMainActivity ? 0.70f : (slotOuterW <= Math.round(64f * density) ? 0.72f : 0.75f));
-            float minPx = Math.min(origPx, Math.max(floorPx, ratioMinPx));
+            int archetype = isRigid1DStrip
+                    ? TypographyNormalizer.ARCHETYPE_RIGID_1D_STRIP
+                    : (hasVertIcon
+                            ? TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP
+                            : TypographyNormalizer.ARCHETYPE_GENERIC_BOUNDED);
+            boolean allowMultiLine = !isRigid1DStrip
+                    && !inMainActivity
+                    && !isSingleLineToolbarForced(tv)
+                    && !isInsideListOrSettingsRow(tv)
+                    && (hasVertIcon || !origSingleLine || origMaxLines > 1);
+            int maxGrowthPx = hasVertIcon ? Math.round(18f * density) : 0;
 
-            // Step 2: Downscale font size toward readable floor while honoring vertical FontMetrics guard.
-            float targetPx = origPx;
-            boolean fitsSingleLine = false;
-            for (int step = 0; step < 8; step++) {
-                measurePaint.setTextSize(targetPx);
-                measurePaint.setTextScaleX(baseScaleX);
-                float mw = TypographyNormalizer.measureHarfBuzzWidth(str, measurePaint);
-                float mh = TypographyNormalizer.measureFontMetricsLineHeight(measurePaint);
-                boolean hOk = mw <= safeTextAvailW + 0.5f;
-                boolean vOk = availHeight <= 0 || mh <= availHeight + 2f;
-                if (hOk && vOk) {
-                    fitsSingleLine = true;
-                    break;
-                }
-                if (targetPx <= minPx) {
-                    break;
-                }
-                targetPx = Math.max(minPx, targetPx * 0.94f);
-            }
+            TypographyNormalizer.CandidatePlan plan = TypographyNormalizer.evaluateCandidates(
+                    str,
+                    origPx,
+                    baseScaleX,
+                    scriptGroup,
+                    archetype,
+                    allowMultiLine,
+                    safeTextAvailW,
+                    availHeight,
+                    maxGrowthPx,
+                    tv.getLineSpacingMultiplier(),
+                    tv.getLineSpacingExtra(),
+                    true,
+                    tv.getPaint(),
+                    activeLocale,
+                    activeTf,
+                    dm);
 
-            float targetScaleX = baseScaleX;
-            int targetLines = origSingleLine ? 1 : Math.max(1, origMaxLines);
-            boolean targetSingleLine = origSingleLine;
-            TextUtils.TruncateAt targetEllipsize = origEllipsize;
+            float targetPx = plan.targetPx;
+            float targetScaleX = plan.targetScaleX;
+            int targetLines = plan.targetLines;
+            boolean targetSingleLine = targetLines <= 1;
+            TextUtils.TruncateAt targetEllipsize = plan.useEllipsis ? TextUtils.TruncateAt.END : origEllipsize;
             int targetMaxWidth = origMaxWidth;
 
-            // Step 3: Mild horizontal scale [0.90f..1.0f] strictly for LATIN_CYRILLIC_GREEK only.
-            if (!fitsSingleLine && scriptGroup == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK) {
-                measurePaint.setTextSize(targetPx);
-                measurePaint.setTextScaleX(1.0f);
-                float mw = TypographyNormalizer.measureHarfBuzzWidth(str, measurePaint);
-                if (mw > safeTextAvailW + 0.5f && mw > 1f) {
-                    float candScale = Math.max(0.90f, Math.min(1.0f, safeTextAvailW / mw));
-                    measurePaint.setTextScaleX(candScale);
-                    float scaledW = TypographyNormalizer.measureHarfBuzzWidth(str, measurePaint);
-                    if (scaledW <= safeTextAvailW + 0.5f) {
-                        targetScaleX = candScale;
-                        fitsSingleLine = true;
-                    }
-                }
-            } else if (scriptGroup != TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK) {
-                targetScaleX = 1.0f;
-            }
-
-            // Step 4: Balanced 2-line wrap ONLY if slot height passes vertical FontMetrics guard.
-            boolean wrappedToTwoLines = false;
-            boolean canTryTwoLines = !inMainActivity
-                    && !isSingleLineToolbarForced(tv)
-                    && availHeight > 0
-                    && !isInsideListOrSettingsRow(tv);
-            if (!fitsSingleLine && canTryTwoLines) {
-                measurePaint.setTextSize(targetPx);
-                measurePaint.setTextScaleX(1.0f);
-                float twoLineFmH = 2f * TypographyNormalizer.measureFontMetricsLineHeight(measurePaint);
-                boolean useRtl = TypographyNormalizer.containsRtlChars(str);
-                StaticLayout sl = TypographyNormalizer.buildStaticLayout(
-                        str, measurePaint, safeTextAvailW, Layout.Alignment.ALIGN_NORMAL,
-                        tv.getLineSpacingMultiplier(), tv.getLineSpacingExtra(), true, 0, null, useRtl);
-                if (sl.getLineCount() <= 2
-                        && TypographyNormalizer.getMaxLineWidth(sl) <= safeTextAvailW + 0.5f
-                        && sl.getHeight() <= availHeight
-                        && twoLineFmH <= availHeight + 2f) {
-                    targetScaleX = 1.0f;
-                    targetSingleLine = false;
-                    targetLines = 2;
-                    wrappedToTwoLines = true;
-                } else if (scriptGroup == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK && sl.getLineCount() > 2) {
-                    measurePaint.setTextScaleX(0.90f);
-                    StaticLayout slScaled = TypographyNormalizer.buildStaticLayout(
-                            str, measurePaint, safeTextAvailW, Layout.Alignment.ALIGN_NORMAL,
-                            tv.getLineSpacingMultiplier(), tv.getLineSpacingExtra(), true, 0, null, useRtl);
-                    if (slScaled.getLineCount() <= 2
-                            && TypographyNormalizer.getMaxLineWidth(slScaled) <= safeTextAvailW + 0.5f
-                            && slScaled.getHeight() <= availHeight
-                            && twoLineFmH <= availHeight + 2f) {
-                        targetScaleX = 0.90f;
-                        targetSingleLine = false;
-                        targetLines = 2;
-                        wrappedToTwoLines = true;
-                    }
-                }
-            }
-
-            // Step 5: Mandatory TruncateAt.END keeping safeInset breathing room from borders.
-            if (!fitsSingleLine && !wrappedToTwoLines) {
-                if (targetLines <= 1 && !inMainActivity && canTryTwoLines) {
-                    measurePaint.setTextSize(targetPx);
-                    measurePaint.setTextScaleX(targetScaleX);
-                    float twoLineFmH = 2f * TypographyNormalizer.measureFontMetricsLineHeight(measurePaint);
-                    if (twoLineFmH <= availHeight + 2f) {
-                        targetSingleLine = false;
-                        targetLines = 2;
-                    } else {
-                        targetSingleLine = true;
-                        targetLines = 1;
-                    }
-                }
-                targetEllipsize = TextUtils.TruncateAt.END;
+            if (plan.state == 5) {
                 if (useSafeZone) {
                     if (tvFillsContainer) {
                         desiredPadL = Math.max(desiredPadL, safeInset);
@@ -2570,10 +2556,6 @@ public final class TranslationEngine {
                         targetMaxWidth = safeTextAvailW + desiredPadL + desiredPadR + compoundL + compoundR;
                     }
                 }
-            } else if (!wrappedToTwoLines && !inMainActivity && origMaxLines <= 1) {
-                targetSingleLine = true;
-                targetLines = 1;
-                targetEllipsize = origEllipsize;
             }
 
             if (tv.getPaddingLeft() != desiredPadL || tv.getPaddingRight() != desiredPadR) {
@@ -2610,12 +2592,12 @@ public final class TranslationEngine {
                 tv.setTextScaleX(targetScaleX);
                 mutated = true;
             }
-            if (Math.abs(tv.getTextSize() - targetPx) >= 0.5f) {
+            if (Math.abs(tv.getTextSize() - targetPx) >= 0.4f) {
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetPx);
                 mutated = true;
             }
 
-            if (!fitsSingleLine && !wrappedToTwoLines) {
+            if (plan.state == 5) {
                 measurePaint.setTextSize(targetPx);
                 measurePaint.setTextScaleX(targetScaleX);
                 logAuditOverflowOnce(tv, str,
@@ -3736,13 +3718,15 @@ public final class TranslationEngine {
             WorkspaceUiController.fixCreateCanvasTopBar(rootView);
         }
         if (canvasPolish) {
-            changed |= WorkspaceUiController.optimizeCanvasToolBars(rootView);
             changed |= WorkspaceUiController.optimizeReferenceFloatingWindow(rootView);
             WorkspaceUiController.polishBrushInfoRow(rootView);
             WorkspaceUiController.polishFastKeyHostCardHeader(rootView);
         }
         if (popupOrDialog) {
             WorkspaceUiController.optimizeAddBrushDialog(rootView);
+            if (fitActive) {
+                changed |= WorkspaceUiController.normalizeDialogTitles(rootView);
+            }
         }
         if (popupOrDialog || WorkspaceUiController.isSettingPopupRoot(rootView)) {
             WorkspaceUiController.applyCanvasSettingPopupLayout(rootView);
@@ -3754,6 +3738,16 @@ public final class TranslationEngine {
             WorkspaceUiController.centerAllIconButtonsRecursively(rootView);
         }
         changed |= translateViewHierarchyTracked(rootView);
+        if (!fitActive) {
+            changed |= WorkspaceUiController.restoreAllSolverStates(rootView);
+        }
+        if (canvasPolish || fitActive) {
+            changed |= WorkspaceUiController.optimizeCanvasToolBars(rootView);
+        }
+        if (fitActive) {
+            changed |= WorkspaceUiController.optimizeElasticPopupMenus(rootView);
+            changed |= WorkspaceUiController.solveAllCanvasStripPeerGroups(rootView);
+        }
         if (polishActive) {
             WorkspaceUiController.compactPaintSettingsScrollArea(rootView);
             WorkspaceUiController.resizePaintSettingsPopup(rootView);
