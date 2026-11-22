@@ -3776,7 +3776,7 @@ public final class TranslationEngine {
                 if (label != null && !label.isEmpty()) {
                     Canvas canvas = new Canvas(out);
                     Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-                    p.setColor(0xB48C8C8C);
+                    p.setColor(mIsNineHint ? 0xFFE6E6E6 : 0xFFC2C2C2);
                     p.setTextAlign(Paint.Align.CENTER);
                     if (sAppContext != null) {
                         Typeface tf = UIFontManager.getActiveTypeface(sAppContext);
@@ -3784,9 +3784,9 @@ public final class TranslationEngine {
                             p.setTypeface(tf);
                         }
                     }
-                    float maxTextW = w * 0.88f;
-                    float textSize = h * (mIsNineHint ? 0.11f : 0.135f);
-                    float minTextSize = Math.max(8f, h * 0.075f);
+                    float maxTextW = w * 0.90f;
+                    float textSize = h * (mIsNineHint ? 0.165f : 0.205f);
+                    float minTextSize = Math.max(10f, h * 0.09f);
                     p.setTextSize(textSize);
                     while (p.measureText(label) > maxTextW && textSize > minTextSize) {
                         textSize = Math.max(minTextSize, textSize * 0.92f);

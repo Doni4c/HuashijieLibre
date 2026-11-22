@@ -81,6 +81,8 @@ public final class WorkspaceUiController {
     private static final int TAG_REF_LABEL_MEASURE_VAL = 0x7e098652;
     private static final int TAG_REF_LABEL_LAST_PW = 0x7e098653;
     private static final int TAG_REF_LABEL_LAST_KEY = 0x7e098654;
+    private static final int TAG_TOOLBAR_ORIG_PX = 0x7e098655;
+    private static final int SYNTHETIC_SWITCH_ID_BASE = 0x7e098540;
 
     private static final Pattern PATTERN_DYNAMIC_NUMERIC =
             Pattern.compile("^[+-]?\\d+(?:[.,]\\d+)?\\s*(?:%|px|dp|sp|fps|pt|mm|cm|x|X)?$");
@@ -1177,6 +1179,7 @@ public final class WorkspaceUiController {
         if (container == null) return;
         try {
             int safeEndMargin = Math.round(60 * density);
+            int relGapPx = Math.round(12 * density);
             int count = container.getChildCount();
             for (int i = 0; i < count; i++) {
                 View child = container.getChildAt(i);
@@ -1184,27 +1187,60 @@ public final class WorkspaceUiController {
                     ViewGroup vg = (ViewGroup) child;
                     TextView label = null;
                     View toggle = null;
+                    int textCount = 0;
                     for (int j = 0; j < vg.getChildCount(); j++) {
                         View sub = vg.getChildAt(j);
-                        if (sub instanceof TextView) {
+                        if (sub instanceof TextView && !(sub instanceof android.widget.CompoundButton)) {
                             label = (TextView) sub;
+                            textCount++;
                         } else if (sub instanceof android.widget.CompoundButton) {
                             toggle = sub;
                         }
                     }
-                    if (label != null && toggle != null) {
+                    if (label != null && toggle != null && textCount == 1) {
                         ViewGroup.LayoutParams lp = label.getLayoutParams();
-                        if (lp instanceof ViewGroup.MarginLayoutParams) {
-                            ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
-                            mlp.rightMargin = safeEndMargin;
-                            if (android.os.Build.VERSION.SDK_INT >= 17) {
-                                mlp.setMarginEnd(safeEndMargin);
+                        if (vg instanceof RelativeLayout && lp instanceof RelativeLayout.LayoutParams) {
+                            int toggleId = toggle.getId();
+                            if (toggleId == View.NO_ID || toggleId <= 0) {
+                                toggleId = SYNTHETIC_SWITCH_ID_BASE + i;
+                                toggle.setId(toggleId);
                             }
-                            label.setLayoutParams(mlp);
+                            RelativeLayout.LayoutParams rlp = (RelativeLayout.LayoutParams) lp;
+                            int[] rules = rlp.getRules();
+                            boolean changed = rlp.rightMargin != relGapPx
+                                    || rules[RelativeLayout.LEFT_OF] != toggleId
+                                    || rules[RelativeLayout.ALIGN_PARENT_LEFT] == 0
+                                    || (Build.VERSION.SDK_INT >= 17 && (rlp.getMarginEnd() != relGapPx
+                                            || rules[RelativeLayout.START_OF] != toggleId
+                                            || rules[RelativeLayout.ALIGN_PARENT_START] == 0));
+                            if (changed) {
+                                rlp.rightMargin = relGapPx;
+                                if (Build.VERSION.SDK_INT >= 17) {
+                                    rlp.setMarginEnd(relGapPx);
+                                    rlp.removeRule(RelativeLayout.ALIGN_PARENT_END);
+                                    rlp.removeRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+                                    rlp.addRule(RelativeLayout.ALIGN_PARENT_START);
+                                    rlp.addRule(RelativeLayout.START_OF, toggleId);
+                                }
+                                rlp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+                                rlp.addRule(RelativeLayout.LEFT_OF, toggleId);
+                                label.setLayoutParams(rlp);
+                            }
+                        } else if (lp instanceof ViewGroup.MarginLayoutParams) {
+                            ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                            if (mlp.rightMargin != safeEndMargin
+                                    || (Build.VERSION.SDK_INT >= 17 && mlp.getMarginEnd() != safeEndMargin)) {
+                                mlp.rightMargin = safeEndMargin;
+                                if (Build.VERSION.SDK_INT >= 17) {
+                                    mlp.setMarginEnd(safeEndMargin);
+                                }
+                                label.setLayoutParams(mlp);
+                            }
                         }
-                        label.setMaxLines(2);
-                        label.setSingleLine(false);
-                        label.setEllipsize(TextUtils.TruncateAt.END);
+                        setMaxLinesIfChanged(label, 2);
+                        setSingleLineIfChanged(label, false);
+                        setEllipsizeIfChanged(label, TextUtils.TruncateAt.END);
+                        TranslationEngine.ensureSafeVietnameseFontPadding(label);
                     }
                 }
             }
@@ -3641,6 +3677,7 @@ public final class WorkspaceUiController {
 
             optimizePaintCloudViews(popupView);
             optimizeExportDialog(popupView);
+            polishGestureSwitchRows(popupView);
 
             boolean polish = isCanvasPopupPolishActive();
             boolean autoFit = TranslationEngine.isTextAutoFitActive();
@@ -4619,9 +4656,94 @@ public final class WorkspaceUiController {
         if (changed) child.setLayoutParams(mlp);
     }
 
+    private static void applySingleLineToolbarLabel(TextView tv) {
+        if (tv == null) return;
+        setSingleLineIfChanged(tv, true);
+        setMaxLinesIfChanged(tv, 1);
+        setEllipsizeIfChanged(tv, null);
+        TranslationEngine.ensureSafeVietnameseFontPadding(tv);
+    }
+
+    private static void fitToolbarLabelToWidth(TextView tv, float defaultSp, float minSp, float density) {
+        if (tv == null || tv.getVisibility() != View.VISIBLE) return;
+        applySingleLineToolbarLabel(tv);
+        Object origObj = tv.getTag(TAG_TOOLBAR_ORIG_PX);
+        float basePx;
+        if (origObj instanceof Float) {
+            basePx = (Float) origObj;
+        } else {
+            basePx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, defaultSp,
+                    tv.getResources().getDisplayMetrics());
+            tv.setTag(TAG_TOOLBAR_ORIG_PX, basePx);
+        }
+        float minPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, minSp,
+                tv.getResources().getDisplayMetrics());
+        int availW = tv.getWidth() - tv.getPaddingLeft() - tv.getPaddingRight() - Math.round(4 * density);
+        float targetPx = basePx;
+        CharSequence cs = tv.getText();
+        if (availW > 0 && cs != null && cs.length() > 0) {
+            TextPaint tp = new TextPaint(tv.getPaint());
+            tp.setTextSize(targetPx);
+            while (tp.measureText(cs.toString()) > availW && targetPx > minPx) {
+                targetPx = Math.max(minPx, targetPx * 0.92f);
+                tp.setTextSize(targetPx);
+            }
+        }
+        if (Math.abs(tv.getTextSize() - targetPx) > 0.4f) {
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetPx);
+        }
+    }
+
+    private static void centerHorizontalSlotLabel(View slot, TextView tv) {
+        if (slot instanceof LinearLayout) {
+            LinearLayout ll = (LinearLayout) slot;
+            if (ll.isBaselineAligned()) {
+                ll.setBaselineAligned(false);
+            }
+            ll.setGravity(Gravity.CENTER);
+        }
+        if (tv != null) {
+            applySingleLineToolbarLabel(tv);
+            setGravityIfChanged(tv, Gravity.CENTER_VERTICAL);
+            if (tv.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                LinearLayout.LayoutParams tlp = (LinearLayout.LayoutParams) tv.getLayoutParams();
+                if (tlp.gravity != Gravity.CENTER_VERTICAL || tlp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                    tlp.gravity = Gravity.CENTER_VERTICAL;
+                    tlp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    tv.setLayoutParams(tlp);
+                }
+            }
+        }
+    }
+
+    private static void polishGestureSwitchRows(View root) {
+        if (root == null) return;
+        try {
+            View gestureSwitch = findView(root, "single_fingers_switch", 0);
+            if (gestureSwitch != null && gestureSwitch.getParent() instanceof View
+                    && gestureSwitch.getParent().getParent() instanceof ViewGroup) {
+                ViewGroup rowContainer = (ViewGroup) gestureSwitch.getParent().getParent();
+                float density = root.getResources().getDisplayMetrics().density;
+                if (density > 0f) {
+                    fixSwitchRowClipping(rowContainer, density);
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void setLinearItemWeight(View v, float weight) {
+        if (v == null || !(v.getLayoutParams() instanceof LinearLayout.LayoutParams)) return;
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
+        if (Math.abs(lp.weight - weight) > 0.01f) {
+            lp.weight = weight;
+            v.setLayoutParams(lp);
+        }
+    }
+
     /**
-     * Widens cramped horizontal canvas sub-toolbars (Lasso selection, Shape selector, Symmetry selector)
-     * in PaintActivity so localized labels fit cleanly without unnatural wrapping or horizontal clipping.
+     * Widens cramped horizontal canvas sub-toolbars (Lasso selection, Shape selector, Symmetry selector,
+     * Bucket/Gradient bar, 3D edit bar, 3D preview tabs, and Liquify bar) in PaintActivity so localized
+     * labels fit cleanly without unnatural wrapping, sidebar collision, or horizontal clipping.
      */
     public static boolean optimizeCanvasToolBars(View root) {
         if (root == null || !isCanvasPopupPolishActive()) return false;
@@ -4634,16 +4756,40 @@ public final class WorkspaceUiController {
             float density = dm.density;
             if (screenW <= 0 || density <= 0f) return false;
 
-            // 1. Expand ShapeSettingView (295dp -> up to 370dp) and content_view (240dp -> up to 312dp).
+            // Compute open canvas span clear of the docked tool rail (paint_left_setting / leftSettingView).
+            int usableLeft = 0;
+            int usableRight = screenW;
+            View toolRail = findView(root, "paint_left_setting", 0);
+            if (toolRail == null) {
+                toolRail = findView(root, "leftSettingView", 0);
+            }
+            if (toolRail != null && toolRail.getVisibility() == View.VISIBLE
+                    && toolRail.getWidth() > 0 && toolRail.getWidth() < screenW / 3) {
+                int rLeft = toolRail.getLeft();
+                int rRight = toolRail.getRight();
+                if (rLeft > screenW / 2) {
+                    usableRight = rLeft;
+                } else if (rRight > 0 && rRight < screenW / 2) {
+                    usableLeft = rRight;
+                }
+            }
+            int usableW = Math.max(Math.round(240 * density), usableRight - usableLeft);
+            float freeCenterShiftX = ((usableLeft + usableRight) - screenW) * 0.5f;
+
+            // 1. Expand ShapeSettingView while staying clear of the docked tool rail.
             int idShape = LibreResourceResolver.resolveViewId(ctx, "shape_setting", 0);
             if (idShape != 0) {
                 View shapeBar = root.findViewById(idShape);
                 if (shapeBar != null && shapeBar.getVisibility() == View.VISIBLE) {
-                    int targetShapeW = Math.min(Math.round(370 * density), screenW - Math.round(16 * density));
+                    int targetShapeW = Math.min(Math.round(336 * density), usableW - Math.round(16 * density));
                     ViewGroup.LayoutParams sLp = shapeBar.getLayoutParams();
-                    if (sLp != null && sLp.width > 0 && sLp.width < targetShapeW) {
+                    if (sLp != null && sLp.width > 0 && sLp.width != targetShapeW) {
                         sLp.width = targetShapeW;
                         shapeBar.setLayoutParams(sLp);
+                        mutated = true;
+                    }
+                    if (Math.abs(shapeBar.getTranslationX() - freeCenterShiftX) > 0.5f) {
+                        shapeBar.setTranslationX(freeCenterShiftX);
                         mutated = true;
                     }
                     int idContent = LibreResourceResolver.resolveViewId(ctx, "content_view", 0);
@@ -4651,16 +4797,22 @@ public final class WorkspaceUiController {
                     if (contentView != null) {
                         int targetContentW = Math.max(Math.round(240 * density), targetShapeW - Math.round(58 * density));
                         ViewGroup.LayoutParams cLp = contentView.getLayoutParams();
-                        if (cLp != null && cLp.width > 0 && cLp.width < targetContentW) {
+                        if (cLp != null && cLp.width > 0 && cLp.width != targetContentW) {
                             cLp.width = targetContentW;
                             contentView.setLayoutParams(cLp);
                             mutated = true;
                         }
                     }
+                    for (String lblId : new String[]{"rect_tv", "oval_tv", "line_tv", "mutil_line_tv", "curves_tv", "standard_tv"}) {
+                        View v = findView(shapeBar, lblId, 0);
+                        if (v instanceof TextView) {
+                            applySingleLineToolbarLabel((TextView) v);
+                        }
+                    }
                 }
             }
 
-            // 2. Expand SymmetrySettingView (290dp -> up to 376dp) across up to 11 symmetry buttons.
+            // 2. Expand SymmetrySettingView across symmetry buttons and center in open canvas span.
             int idToolsView = LibreResourceResolver.resolveViewId(ctx, "tools_view", 0);
             if (idToolsView != 0) {
                 View toolsView = root.findViewById(idToolsView);
@@ -4668,19 +4820,22 @@ public final class WorkspaceUiController {
                     View symRoot = (View) toolsView.getParent();
                     if (symRoot.getVisibility() == View.VISIBLE
                             && symRoot.getClass().getName().endsWith("SymmetrySettingView")) {
-                        int targetSymW = Math.min(Math.round(376 * density), screenW - Math.round(16 * density));
+                        int targetSymW = Math.min(Math.round(376 * density), usableW - Math.round(16 * density));
                         ViewGroup.LayoutParams symLp = symRoot.getLayoutParams();
-                        if (symLp != null && symLp.width > 0 && symLp.width < targetSymW) {
+                        if (symLp != null && symLp.width > 0 && symLp.width != targetSymW) {
                             symLp.width = targetSymW;
                             symRoot.setLayoutParams(symLp);
+                            mutated = true;
+                        }
+                        if (Math.abs(symRoot.getTranslationX() - freeCenterShiftX) > 0.5f) {
+                            symRoot.setTranslationX(freeCenterShiftX);
                             mutated = true;
                         }
                     }
                 }
             }
 
-            // 3. Optimize XuanQuSettingView: expand view1 (280dp -> ~356dp) with compact 6dp gaps,
-            // and clamp view2 (415dp) to viewport while trimming 16dp transform gaps down to 4dp.
+            // 3. Optimize XuanQuSettingView: keep view1 and view2 inside open canvas span clear of tool rail.
             int idDeformMenu = LibreResourceResolver.resolveViewId(ctx, "ll_img_deformation_menu", 0);
             if (idDeformMenu != 0) {
                 View deformMenu = root.findViewById(idDeformMenu);
@@ -4688,11 +4843,17 @@ public final class WorkspaceUiController {
                     View view2 = (View) deformMenu.getParent();
                     View shadowLayout = (view2.getParent() instanceof View) ? (View) view2.getParent() : null;
                     if (shadowLayout instanceof ViewGroup) {
+                        View xuanQuRoot = (shadowLayout.getParent() instanceof View) ? (View) shadowLayout.getParent() : null;
+                        if (xuanQuRoot != null && xuanQuRoot.getVisibility() == View.VISIBLE
+                                && Math.abs(xuanQuRoot.getTranslationX() - freeCenterShiftX) > 0.5f) {
+                            xuanQuRoot.setTranslationX(freeCenterShiftX);
+                            mutated = true;
+                        }
                         int idView1 = LibreResourceResolver.resolveViewId(ctx, "view1", 0);
                         View view1 = idView1 != 0 ? shadowLayout.findViewById(idView1) : null;
                         if (view1 instanceof ViewGroup && view1.getVisibility() == View.VISIBLE) {
                             int targetV1W = Math.max(Math.round(280 * density),
-                                    Math.min(Math.round(356 * density), screenW - Math.round(24 * density)));
+                                    Math.min(Math.round(356 * density), usableW - Math.round(24 * density)));
                             ViewGroup.LayoutParams v1Lp = view1.getLayoutParams();
                             if (v1Lp != null && v1Lp.width > 0 && v1Lp.width != targetV1W) {
                                 v1Lp.width = targetV1W;
@@ -4720,7 +4881,7 @@ public final class WorkspaceUiController {
                             }
                         }
                         if (view2.getVisibility() == View.VISIBLE) {
-                            int maxV2W = screenW - Math.round(20 * density);
+                            int maxV2W = usableW - Math.round(16 * density);
                             int targetV2W = Math.min(Math.round(415 * density), maxV2W);
                             ViewGroup.LayoutParams v2Lp = view2.getLayoutParams();
                             if (v2Lp != null && v2Lp.width > 0 && v2Lp.width != targetV2W) {
@@ -4739,6 +4900,135 @@ public final class WorkspaceUiController {
                                 mutated = true;
                             }
                         }
+                    }
+                }
+            }
+
+            // 4. Expand LiuyebiSettingView (Bucket & Gradient Fill when ToggleSwitchView is visible)
+            // so 3-segment switch pills (Current Layer / Reference / All Layers) never crowd.
+            View liuyebiBar = findView(root, "liuyebi_setting", 0);
+            if (liuyebiBar != null && liuyebiBar.getVisibility() == View.VISIBLE) {
+                View switchView = findView(liuyebiBar, "switchView", 0);
+                if (switchView != null && switchView.getVisibility() == View.VISIBLE) {
+                    View contentView = findView(liuyebiBar, "contentView", 0);
+                    if (contentView != null) {
+                        int targetLiuW = Math.min(Math.round(284 * density), usableW - Math.round(24 * density));
+                        ViewGroup.LayoutParams cLp = contentView.getLayoutParams();
+                        if (cLp != null && cLp.width > 0 && cLp.width < targetLiuW) {
+                            cLp.width = targetLiuW;
+                            contentView.setLayoutParams(cLp);
+                            mutated = true;
+                        }
+                    }
+                    if (Math.abs(liuyebiBar.getTranslationX() - freeCenterShiftX) > 0.5f) {
+                        liuyebiBar.setTranslationX(freeCenterShiftX);
+                        mutated = true;
+                    }
+                }
+                for (String lblId : new String[]{"fill_tv", "eraser_tv", "pot_setting_tv"}) {
+                    View v = findView(liuyebiBar, lblId, 0);
+                    if (v instanceof TextView) {
+                        applySingleLineToolbarLabel((TextView) v);
+                    }
+                }
+            }
+
+            // 5. Top3DEditSettingView: prevent equal phone weight=1 from squeezing Move/Rotate into 2 lines.
+            View viewMove = findView(root, "view_move", 0);
+            View viewRotate = findView(root, "view_rorate", 0);
+            View bgReset = findView(root, "bg_reset", 0);
+            if (viewMove != null && viewRotate != null && bgReset != null
+                    && viewMove.getParent() instanceof LinearLayout
+                    && viewRotate.getParent() == viewMove.getParent()
+                    && bgReset.getParent() == viewMove.getParent()) {
+                LinearLayout bg3d = (LinearLayout) viewMove.getParent();
+                if (bg3d.getVisibility() == View.VISIBLE) {
+                    int padL = Math.round(10 * density);
+                    int padR = Math.round(4 * density);
+                    for (View slot : new View[]{viewMove, viewRotate}) {
+                        if (slot.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) slot.getLayoutParams();
+                            boolean slotChg = false;
+                            if (lp.width != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                                lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+                                slotChg = true;
+                            }
+                            if (lp.weight != 0f) {
+                                lp.weight = 0f;
+                                slotChg = true;
+                            }
+                            if (lp.leftMargin != padL || lp.rightMargin != padR) {
+                                lp.leftMargin = padL;
+                                lp.rightMargin = padR;
+                                if (Build.VERSION.SDK_INT >= 17) {
+                                    lp.setMarginStart(padL);
+                                    lp.setMarginEnd(padR);
+                                }
+                                slotChg = true;
+                            }
+                            if (slotChg) {
+                                slot.setLayoutParams(lp);
+                                mutated = true;
+                            }
+                        }
+                    }
+                    for (String lblId : new String[]{"tv_move", "tv_rorate"}) {
+                        View tv = findView(bg3d, lblId, 0);
+                        if (tv instanceof TextView) {
+                            centerHorizontalSlotLabel(tv.getParent() instanceof View ? (View) tv.getParent() : null, (TextView) tv);
+                        }
+                    }
+                }
+            }
+            View tvEdit3d = findView(root, "tv_edit", 0);
+            if (tvEdit3d instanceof TextView && tvEdit3d.getVisibility() == View.VISIBLE
+                    && tvEdit3d.getParent() instanceof LinearLayout) {
+                centerHorizontalSlotLabel((View) tvEdit3d.getParent(), (TextView) tvEdit3d);
+            }
+            View tvRotStretch = findView(root, "tv_rotate_stretch", 0);
+            if (tvRotStretch instanceof TextView && tvRotStretch.getVisibility() == View.VISIBLE) {
+                applySingleLineToolbarLabel((TextView) tvRotStretch);
+            }
+            polishGestureSwitchRows(root);
+
+            // 6. PreView3D view tabs: balance weight for Perspective and keep all 4 tabs single-line.
+            View tvPersp = findView(root, "tv_scenograph", 0);
+            if (tvPersp instanceof TextView && tvPersp.getParent() instanceof LinearLayout) {
+                LinearLayout tabRow = (LinearLayout) tvPersp.getParent();
+                if (tabRow.getVisibility() == View.VISIBLE) {
+                    View tvTop = findView(tabRow, "tv_top", 0);
+                    View tvSide = findView(tabRow, "tv_side", 0);
+                    View tvFront = findView(tabRow, "tv_front", 0);
+                    setLinearItemWeight(tvTop, 1.0f);
+                    setLinearItemWeight(tvSide, 1.0f);
+                    setLinearItemWeight(tvFront, 1.05f);
+                    setLinearItemWeight(tvPersp, 1.3f);
+                    for (View tab : new View[]{tvTop, tvSide, tvFront, tvPersp}) {
+                        if (tab instanceof TextView) {
+                            fitToolbarLabelToWidth((TextView) tab, 12f, 9.5f, density);
+                        }
+                    }
+                }
+            }
+
+            // 7. LiquefySettingPhoneView: keep 6 button labels uniform 1-line at 10.5sp with 2dp margins.
+            View liquefyPhone = findView(root, "liquefy_phone_view", 0);
+            if (liquefyPhone != null && liquefyPhone.getVisibility() == View.VISIBLE) {
+                int liqMarginPx = Math.round(2 * density);
+                for (String lblId : new String[]{
+                        "liquefy_type_tv",
+                        "liquid_recreate_tv_phone",
+                        "liquid_sharping_tv_phone",
+                        "liquid_reset_tv_phone",
+                        "liquid_cancel_tv_phone",
+                        "liquid_sure_tv_phone"
+                }) {
+                    View tv = findView(liquefyPhone, lblId, 0);
+                    if (tv instanceof TextView) {
+                        if (tv.getParent() instanceof View) {
+                            setHorizontalMargins((View) tv.getParent(), liqMarginPx, liqMarginPx);
+                        }
+                        fitToolbarLabelToWidth((TextView) tv, 10.5f, 9.5f, density);
                     }
                 }
             }

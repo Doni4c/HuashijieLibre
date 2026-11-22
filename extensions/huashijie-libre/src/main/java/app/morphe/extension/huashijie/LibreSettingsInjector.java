@@ -71,7 +71,7 @@ public final class LibreSettingsInjector {
     private static final String TAG_ENTRY_TITLE = "libre_settings_title_tv";
     private static final String TAG_ENTRY_DESC = "libre_settings_desc";
 
-    private static final String LIBRE_VERSION = "1.0.0-beta.1";
+    private static final String LIBRE_VERSION = "1.0.0-beta.2";
     private static final String BASE_APP_VERSION = "3.4.6";
     private static final String GITHUB_REPO_URL = "https://github.com/Doni4c/HuashijieLibre";
     private static final String GITHUB_RELEASES_URL = GITHUB_REPO_URL + "/releases";
