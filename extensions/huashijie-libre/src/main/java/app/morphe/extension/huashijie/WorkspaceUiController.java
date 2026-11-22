@@ -5,9 +5,12 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
@@ -40,6 +43,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -82,6 +86,17 @@ public final class WorkspaceUiController {
     private static final int TAG_REF_LABEL_LAST_PW = 0x7e098653;
     private static final int TAG_REF_LABEL_LAST_KEY = 0x7e098654;
     private static final int TAG_TOOLBAR_ORIG_PX = 0x7e098655;
+    private static final int TAG_ORIG_SHAPE_W = 0x7e098656;
+    private static final int TAG_ORIG_SHAPE_CONTENT_W = 0x7e098657;
+    private static final int TAG_ORIG_SHAPE_STD_W = 0x7e098658;
+    private static final int TAG_ORIG_LIUYEBI_W = 0x7e098659;
+    private static final int TAG_ORIG_XUANQU_V1_W = 0x7e09865a;
+    private static final int TAG_ORIG_XUANQU_V2_W = 0x7e09865b;
+    private static final int TAG_TOGGLE_ORIG_FONT_PX = 0x7e09865c;
+    private static final int TAG_TOGGLE_PLAN_KEY = 0x7e09865d;
+    private static final int TAG_TOGGLE_PLAN = 0x7e09865e;
+    private static final int TAG_HSV_PLAN_KEY = 0x7e09865f;
+    private static final int TAG_HSV_PLAN = 0x7e098660;
     private static final int SYNTHETIC_SWITCH_ID_BASE = 0x7e098540;
 
     private static final Pattern PATTERN_DYNAMIC_NUMERIC =
@@ -4450,8 +4465,14 @@ public final class WorkspaceUiController {
                             int pw = parentView.getWidth();
                             if (pw > 0) {
                                 String textStr = tvCs.toString();
+                                Context tvCtx = tv.getContext();
+                                Locale activeLoc = TranslationEngine.getActiveLocale();
+                                Typeface activeTf = UIFontManager.getActiveTypeface(tvCtx);
+                                mutated |= TypographyNormalizer.prepareTextViewForPipeline(
+                                        tv, textStr, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
                                 String measureKey = textStr + "|" + Float.floatToRawIntBits(origRefPx)
-                                        + "|" + System.identityHashCode(tv.getTypeface());
+                                        + "|" + UIFontManager.getActiveTypefaceIdentity(tvCtx)
+                                        + "|" + TranslationEngine.getActiveLocaleTag();
                                 Object prevPw = tv.getTag(TAG_REF_LABEL_LAST_PW);
                                 Object prevKey = tv.getTag(TAG_REF_LABEL_LAST_KEY);
                                 if (!(prevPw instanceof Integer
@@ -4467,9 +4488,11 @@ public final class WorkspaceUiController {
                                         if (measureKey.equals(cachedMeasureKey) && cachedMeasureVal instanceof Float) {
                                             measuredRefW = (Float) cachedMeasureVal;
                                         } else {
-                                            TextPaint refPaint = new TextPaint(tv.getPaint());
+                                            TextPaint refPaint = TypographyNormalizer.getScratchTextPaint(tv.getPaint());
                                             refPaint.setTextSize(origRefPx);
-                                            measuredRefW = refPaint.measureText(textStr);
+                                            TypographyNormalizer.preparePaintForScript(
+                                                    refPaint, textStr, activeLoc, activeTf);
+                                            measuredRefW = TypographyNormalizer.measureHarfBuzzWidth(textStr, refPaint);
                                             tv.setTag(TAG_REF_LABEL_MEASURE_KEY, measureKey);
                                             tv.setTag(TAG_REF_LABEL_MEASURE_VAL, Float.valueOf(measuredRefW));
                                         }
@@ -4660,7 +4683,6 @@ public final class WorkspaceUiController {
         if (tv == null) return;
         setSingleLineIfChanged(tv, true);
         setMaxLinesIfChanged(tv, 1);
-        setEllipsizeIfChanged(tv, null);
         TranslationEngine.ensureSafeVietnameseFontPadding(tv);
     }
 
@@ -4668,26 +4690,61 @@ public final class WorkspaceUiController {
         if (tv == null || tv.getVisibility() != View.VISIBLE) return;
         applySingleLineToolbarLabel(tv);
         Object origObj = tv.getTag(TAG_TOOLBAR_ORIG_PX);
+        DisplayMetrics dm = tv.getResources().getDisplayMetrics();
         float basePx;
         if (origObj instanceof Float) {
             basePx = (Float) origObj;
         } else {
-            basePx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, defaultSp,
-                    tv.getResources().getDisplayMetrics());
+            basePx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, defaultSp, dm);
             tv.setTag(TAG_TOOLBAR_ORIG_PX, basePx);
         }
-        float minPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, minSp,
-                tv.getResources().getDisplayMetrics());
-        int availW = tv.getWidth() - tv.getPaddingLeft() - tv.getPaddingRight() - Math.round(4 * density);
+        float minPx = Math.min(basePx, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, minSp, dm));
+        int boxW = tv.getWidth();
+        int safeInset = boxW > 0
+                ? TypographyNormalizer.clamp(Math.round(boxW * 0.08f), Math.round(4f * density), Math.round(10f * density))
+                : Math.round(4f * density);
+        int effPadL = Math.max(tv.getPaddingLeft(), safeInset);
+        int effPadR = Math.max(tv.getPaddingRight(), safeInset);
+        int availW = boxW - effPadL - effPadR;
         float targetPx = basePx;
+        float targetScaleX = 1.0f;
         CharSequence cs = tv.getText();
+        boolean stillOverflows = false;
         if (availW > 0 && cs != null && cs.length() > 0) {
-            TextPaint tp = new TextPaint(tv.getPaint());
+            String str = cs.toString();
+            Locale activeLoc = TranslationEngine.getActiveLocale();
+            Typeface activeTf = UIFontManager.getActiveTypeface(tv.getContext());
+            TypographyNormalizer.prepareTextViewForPipeline(
+                    tv, str, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
+            TextPaint tp = TypographyNormalizer.getScratchTextPaint(tv.getPaint());
+            TypographyNormalizer.preparePaintForScript(tp, str, activeLoc, activeTf);
+            tp.setTextScaleX(1.0f);
             tp.setTextSize(targetPx);
-            while (tp.measureText(cs.toString()) > availW && targetPx > minPx) {
+            while (TypographyNormalizer.measureHarfBuzzWidth(str, tp) > availW + 0.5f && targetPx > minPx) {
                 targetPx = Math.max(minPx, targetPx * 0.92f);
                 tp.setTextSize(targetPx);
             }
+            float wAfter = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
+            if (wAfter > availW + 0.5f) {
+                if (TypographyNormalizer.classifyScript(str) == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK
+                        && wAfter > 1f) {
+                    float scaled = Math.max(0.90f, Math.min(1.0f, availW / wAfter));
+                    tp.setTextScaleX(scaled);
+                    targetScaleX = scaled;
+                    stillOverflows = TypographyNormalizer.measureHarfBuzzWidth(str, tp) > availW + 0.5f;
+                } else {
+                    stillOverflows = true;
+                }
+            }
+        }
+        if (tv.getPaddingLeft() != effPadL || tv.getPaddingRight() != effPadR) {
+            tv.setPadding(effPadL, tv.getPaddingTop(), effPadR, tv.getPaddingBottom());
+        }
+        if (stillOverflows && tv.getEllipsize() != TextUtils.TruncateAt.END) {
+            tv.setEllipsize(TextUtils.TruncateAt.END);
+        }
+        if (Math.abs(tv.getTextScaleX() - targetScaleX) > 0.005f) {
+            tv.setTextScaleX(targetScaleX);
         }
         if (Math.abs(tv.getTextSize() - targetPx) > 0.4f) {
             tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetPx);
@@ -4741,24 +4798,15 @@ public final class WorkspaceUiController {
     }
 
     /**
-     * Widens cramped horizontal canvas sub-toolbars (Lasso selection, Shape selector, Symmetry selector,
-     * Bucket/Gradient bar, 3D edit bar, 3D preview tabs, and Liquify bar) in PaintActivity so localized
-     * labels fit cleanly without unnatural wrapping, sidebar collision, or horizontal clipping.
+     * Computes open horizontal canvas bounds [usableLeft, usableRight, usableW, freeCenterShiftXpx]
+     * clear of the docked PaintActivity tool rail.
      */
-    public static boolean optimizeCanvasToolBars(View root) {
-        if (root == null || !isCanvasPopupPolishActive()) return false;
-        Context ctx = root.getContext();
-        if (ctx == null || !TranslationEngine.resolveHostActivityName(root).endsWith("PaintActivity")) return false;
-        boolean mutated = false;
-        try {
-            android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-            int screenW = dm.widthPixels;
-            float density = dm.density;
-            if (screenW <= 0 || density <= 0f) return false;
-
-            // Compute open canvas span clear of the docked tool rail (paint_left_setting / leftSettingView).
-            int usableLeft = 0;
-            int usableRight = screenW;
+    private static int[] computeUsableCanvasSpan(View root, DisplayMetrics dm) {
+        int screenW = dm.widthPixels;
+        float density = dm.density;
+        int usableLeft = 0;
+        int usableRight = screenW;
+        if (root != null) {
             View toolRail = findView(root, "paint_left_setting", 0);
             if (toolRail == null) {
                 toolRail = findView(root, "leftSettingView", 0);
@@ -4773,29 +4821,116 @@ public final class WorkspaceUiController {
                     usableLeft = rRight;
                 }
             }
-            int usableW = Math.max(Math.round(240 * density), usableRight - usableLeft);
-            float freeCenterShiftX = ((usableLeft + usableRight) - screenW) * 0.5f;
+        }
+        int usableW = Math.max(Math.round(240f * density), usableRight - usableLeft);
+        int centerShiftPx = Math.round(((usableLeft + usableRight) - screenW) * 0.5f);
+        return new int[]{usableLeft, usableRight, usableW, centerShiftPx};
+    }
 
-            // 1. Expand ShapeSettingView while staying clear of the docked tool rail.
+    private static float measureLabelDesiredWidth(TextView tv) {
+        if (tv == null) return 0f;
+        CharSequence cs = tv.getText();
+        if (cs == null || cs.length() == 0) return 0f;
+        Object origObj = tv.getTag(0x7e098613); // TAG_KEY_ORIG_TEXT_SIZE
+        float origPx = (origObj instanceof Float && (Float) origObj > 0f) ? (Float) origObj : tv.getTextSize();
+        TextPaint tp = TypographyNormalizer.getScratchTextPaint(tv.getPaint());
+        if (origPx > 0f) {
+            tp.setTextSize(origPx);
+        }
+        Locale activeLoc = TranslationEngine.getActiveLocale();
+        Typeface activeTf = UIFontManager.getActiveTypeface(tv.getContext());
+        TypographyNormalizer.preparePaintForScript(tp, cs, activeLoc, activeTf);
+        tp.setTextScaleX(1.0f);
+        return TypographyNormalizer.measureHarfBuzzWidth(cs, tp);
+    }
+
+    /**
+     * Widens cramped horizontal canvas sub-toolbars (Lasso selection, Shape selector, Symmetry selector,
+     * Bucket/Gradient bar, 3D edit bar, 3D preview tabs, and Liquify bar) in PaintActivity so localized
+     * labels fit cleanly without unnatural wrapping, sidebar collision, or horizontal clipping.
+     */
+    public static boolean optimizeCanvasToolBars(View root) {
+        if (root == null || !isCanvasPopupPolishActive()) return false;
+        Context ctx = root.getContext();
+        if (ctx == null || !TranslationEngine.resolveHostActivityName(root).endsWith("PaintActivity")) return false;
+        boolean mutated = false;
+        try {
+            DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+            int screenW = dm.widthPixels;
+            float density = dm.density;
+            if (screenW <= 0 || density <= 0f) return false;
+
+            int[] span = computeUsableCanvasSpan(root, dm);
+            int usableW = span[2];
+            float freeCenterShiftX = span[3];
+
+            // 1. Expand ShapeSettingView and standard_view dynamically within the open canvas span.
             int idShape = LibreResourceResolver.resolveViewId(ctx, "shape_setting", 0);
             if (idShape != 0) {
                 View shapeBar = root.findViewById(idShape);
                 if (shapeBar != null && shapeBar.getVisibility() == View.VISIBLE) {
-                    int targetShapeW = Math.min(Math.round(336 * density), usableW - Math.round(16 * density));
+                    View stdView = findView(shapeBar, "standard_view", 0);
+                    View contentView = findView(shapeBar, "content_view", 0);
+                    TextView stdTv = (findView(shapeBar, "standard_tv", 0) instanceof TextView)
+                            ? (TextView) findView(shapeBar, "standard_tv", 0)
+                            : null;
+                    float maxSlotLabelW = 0f;
+                    for (String lblId : new String[]{"rect_tv", "oval_tv", "line_tv", "mutil_line_tv", "curves_tv"}) {
+                        View v = findView(shapeBar, lblId, 0);
+                        if (v instanceof TextView) {
+                            TextView st = (TextView) v;
+                            applySingleLineToolbarLabel(st);
+                            maxSlotLabelW = Math.max(maxSlotLabelW, measureLabelDesiredWidth(st));
+                        }
+                    }
+                    if (stdTv != null) {
+                        applySingleLineToolbarLabel(stdTv);
+                    }
+                    float stdLabelW = stdTv != null ? measureLabelDesiredWidth(stdTv) : 0f;
+
                     ViewGroup.LayoutParams sLp = shapeBar.getLayoutParams();
+                    if (sLp != null) {
+                        if (shapeBar.getTag(TAG_ORIG_SHAPE_W) == null && sLp.width > 0) {
+                            shapeBar.setTag(TAG_ORIG_SHAPE_W, Integer.valueOf(sLp.width));
+                        }
+                    }
+                    if (stdView != null && stdView.getTag(TAG_ORIG_SHAPE_STD_W) == null
+                            && stdView.getLayoutParams() != null && stdView.getLayoutParams().width > 0) {
+                        stdView.setTag(TAG_ORIG_SHAPE_STD_W, Integer.valueOf(stdView.getLayoutParams().width));
+                    }
+                    if (contentView != null && contentView.getTag(TAG_ORIG_SHAPE_CONTENT_W) == null
+                            && contentView.getLayoutParams() != null && contentView.getLayoutParams().width > 0) {
+                        contentView.setTag(TAG_ORIG_SHAPE_CONTENT_W, Integer.valueOf(contentView.getLayoutParams().width));
+                    }
+
+                    int desiredStdW = stdView != null
+                            ? TypographyNormalizer.clamp(Math.round(stdLabelW + 14f * density),
+                                    Math.round(50f * density), Math.round(86f * density))
+                            : Math.round(50f * density);
+                    int desiredSlotW = TypographyNormalizer.clamp(Math.round(maxSlotLabelW + 14f * density),
+                            Math.round(50f * density), Math.round(74f * density));
+                    int desiredContentW = 5 * desiredSlotW + Math.round(12f * density);
+                    int gapPx = Math.round(6f * density);
+                    int maxAllowedShapeW = Math.max(Math.round(240f * density), usableW - Math.round(8f * density));
+
+                    int targetStdW = desiredStdW;
+                    int targetContentW = desiredContentW;
+                    if (targetContentW + targetStdW + gapPx > maxAllowedShapeW) {
+                        int availBoth = Math.max(Math.round(224f * density), maxAllowedShapeW - gapPx);
+                        targetStdW = Math.min(desiredStdW, Math.max(Math.round(50f * density), Math.round(availBoth * 0.20f)));
+                        targetContentW = Math.max(Math.round(170f * density), availBoth - targetStdW);
+                    }
+                    int targetShapeW = Math.min(maxAllowedShapeW, targetContentW + targetStdW + gapPx);
+                    if (stdView != null) {
+                        setHorizontalMargins(stdView, Math.round(4f * density), 0);
+                    }
+
                     if (sLp != null && sLp.width > 0 && sLp.width != targetShapeW) {
                         sLp.width = targetShapeW;
                         shapeBar.setLayoutParams(sLp);
                         mutated = true;
                     }
-                    if (Math.abs(shapeBar.getTranslationX() - freeCenterShiftX) > 0.5f) {
-                        shapeBar.setTranslationX(freeCenterShiftX);
-                        mutated = true;
-                    }
-                    int idContent = LibreResourceResolver.resolveViewId(ctx, "content_view", 0);
-                    View contentView = idContent != 0 ? shapeBar.findViewById(idContent) : null;
                     if (contentView != null) {
-                        int targetContentW = Math.max(Math.round(240 * density), targetShapeW - Math.round(58 * density));
                         ViewGroup.LayoutParams cLp = contentView.getLayoutParams();
                         if (cLp != null && cLp.width > 0 && cLp.width != targetContentW) {
                             cLp.width = targetContentW;
@@ -4803,11 +4938,17 @@ public final class WorkspaceUiController {
                             mutated = true;
                         }
                     }
-                    for (String lblId : new String[]{"rect_tv", "oval_tv", "line_tv", "mutil_line_tv", "curves_tv", "standard_tv"}) {
-                        View v = findView(shapeBar, lblId, 0);
-                        if (v instanceof TextView) {
-                            applySingleLineToolbarLabel((TextView) v);
+                    if (stdView != null) {
+                        ViewGroup.LayoutParams stdLp = stdView.getLayoutParams();
+                        if (stdLp != null && stdLp.width > 0 && stdLp.width != targetStdW) {
+                            stdLp.width = targetStdW;
+                            stdView.setLayoutParams(stdLp);
+                            mutated = true;
                         }
+                    }
+                    if (Math.abs(shapeBar.getTranslationX() - freeCenterShiftX) > 0.5f) {
+                        shapeBar.setTranslationX(freeCenterShiftX);
+                        mutated = true;
                     }
                 }
             }
@@ -4835,7 +4976,7 @@ public final class WorkspaceUiController {
                 }
             }
 
-            // 3. Optimize XuanQuSettingView: keep view1 and view2 inside open canvas span clear of tool rail.
+            // 3. Optimize XuanQuSettingView dynamically using ToggleSwitchView widths inside open span.
             int idDeformMenu = LibreResourceResolver.resolveViewId(ctx, "ll_img_deformation_menu", 0);
             if (idDeformMenu != 0) {
                 View deformMenu = root.findViewById(idDeformMenu);
@@ -4852,8 +4993,12 @@ public final class WorkspaceUiController {
                         int idView1 = LibreResourceResolver.resolveViewId(ctx, "view1", 0);
                         View view1 = idView1 != 0 ? shadowLayout.findViewById(idView1) : null;
                         if (view1 instanceof ViewGroup && view1.getVisibility() == View.VISIBLE) {
-                            int targetV1W = Math.max(Math.round(280 * density),
-                                    Math.min(Math.round(356 * density), usableW - Math.round(24 * density)));
+                            View sw1 = findView(view1, "switchView", 0);
+                            int desiredSw1 = computeDesiredToggleSwitchBarWidth(sw1, usableW, density);
+                            int targetV1W = TypographyNormalizer.clamp(
+                                    Math.max(Math.round(280 * density), desiredSw1),
+                                    Math.round(280 * density),
+                                    Math.max(Math.round(280 * density), usableW - Math.round(16 * density)));
                             ViewGroup.LayoutParams v1Lp = view1.getLayoutParams();
                             if (v1Lp != null && v1Lp.width > 0 && v1Lp.width != targetV1W) {
                                 v1Lp.width = targetV1W;
@@ -4881,8 +5026,10 @@ public final class WorkspaceUiController {
                             }
                         }
                         if (view2.getVisibility() == View.VISIBLE) {
-                            int maxV2W = usableW - Math.round(16 * density);
-                            int targetV2W = Math.min(Math.round(415 * density), maxV2W);
+                            View sw2 = findView(view2, "magic_stick_sampler_switch_view", 0);
+                            int desiredSw2 = computeDesiredToggleSwitchBarWidth(sw2, usableW, density);
+                            int maxV2W = Math.max(Math.round(280 * density), usableW - Math.round(16 * density));
+                            int targetV2W = Math.min(Math.max(Math.round(415 * density), desiredSw2), maxV2W);
                             ViewGroup.LayoutParams v2Lp = view2.getLayoutParams();
                             if (v2Lp != null && v2Lp.width > 0 && v2Lp.width != targetV2W) {
                                 v2Lp.width = targetV2W;
@@ -4904,33 +5051,10 @@ public final class WorkspaceUiController {
                 }
             }
 
-            // 4. Expand LiuyebiSettingView (Bucket & Gradient Fill when ToggleSwitchView is visible)
-            // so 3-segment switch pills (Current Layer / Reference / All Layers) never crowd.
+            // 4. Expand LiuyebiSettingView (Bucket & Gradient Fill) dynamically from its ToggleSwitchView.
             View liuyebiBar = findView(root, "liuyebi_setting", 0);
             if (liuyebiBar != null && liuyebiBar.getVisibility() == View.VISIBLE) {
-                View switchView = findView(liuyebiBar, "switchView", 0);
-                if (switchView != null && switchView.getVisibility() == View.VISIBLE) {
-                    View contentView = findView(liuyebiBar, "contentView", 0);
-                    if (contentView != null) {
-                        int targetLiuW = Math.min(Math.round(284 * density), usableW - Math.round(24 * density));
-                        ViewGroup.LayoutParams cLp = contentView.getLayoutParams();
-                        if (cLp != null && cLp.width > 0 && cLp.width < targetLiuW) {
-                            cLp.width = targetLiuW;
-                            contentView.setLayoutParams(cLp);
-                            mutated = true;
-                        }
-                    }
-                    if (Math.abs(liuyebiBar.getTranslationX() - freeCenterShiftX) > 0.5f) {
-                        liuyebiBar.setTranslationX(freeCenterShiftX);
-                        mutated = true;
-                    }
-                }
-                for (String lblId : new String[]{"fill_tv", "eraser_tv", "pot_setting_tv"}) {
-                    View v = findView(liuyebiBar, lblId, 0);
-                    if (v instanceof TextView) {
-                        applySingleLineToolbarLabel((TextView) v);
-                    }
-                }
+                mutated |= normalizeLiuyebiBar(liuyebiBar, root, usableW, freeCenterShiftX, density);
             }
 
             // 5. Top3DEditSettingView: prevent equal phone weight=1 from squeezing Move/Rotate into 2 lines.
@@ -5005,13 +5129,13 @@ public final class WorkspaceUiController {
                     setLinearItemWeight(tvPersp, 1.3f);
                     for (View tab : new View[]{tvTop, tvSide, tvFront, tvPersp}) {
                         if (tab instanceof TextView) {
-                            fitToolbarLabelToWidth((TextView) tab, 12f, 9.5f, density);
+                            fitToolbarLabelToWidth((TextView) tab, 12f, 8.8f, density);
                         }
                     }
                 }
             }
 
-            // 7. LiquefySettingPhoneView: keep 6 button labels uniform 1-line at 10.5sp with 2dp margins.
+            // 7. LiquefySettingPhoneView: keep 6 button labels uniform 1-line down to 8.5sp with 2dp margins.
             View liquefyPhone = findView(root, "liquefy_phone_view", 0);
             if (liquefyPhone != null && liquefyPhone.getVisibility() == View.VISIBLE) {
                 int liqMarginPx = Math.round(2 * density);
@@ -5028,7 +5152,7 @@ public final class WorkspaceUiController {
                         if (tv.getParent() instanceof View) {
                             setHorizontalMargins((View) tv.getParent(), liqMarginPx, liqMarginPx);
                         }
-                        fitToolbarLabelToWidth((TextView) tv, 10.5f, 9.5f, density);
+                        fitToolbarLabelToWidth((TextView) tv, 10.5f, 8.5f, density);
                     }
                 }
             }
@@ -5685,5 +5809,587 @@ public final class WorkspaceUiController {
                 }
             }
         } catch (Throwable ignored) {}
+    }
+
+    // ---- Dynamic ToggleSwitchView, LiuyebiSettingView & HSVSeekbarView Normalization ----
+
+    private static volatile boolean sToggleFieldsResolved = false;
+    private static Field fToggleNames;
+    private static Field fToggleBgRect;
+    private static Field fToggleSelectIndex;
+    private static Field fToggleTextPaint;
+    private static Field fToggleSelectTextPaint;
+    private static Field fToggleFontSize;
+
+    private static volatile boolean sHsvFieldsResolved = false;
+    private static Field fHsvTitle;
+    private static Field fHsvNameRect;
+    private static Field fHsvValueBgRect;
+    private static Field fHsvTextPaint;
+    private static Field fHsvTextColor;
+
+    private static final class ToggleRenderPlan {
+        final String key;
+        final float availW;
+        final float targetPx;
+        final StaticLayout[] normalLayouts;
+        final StaticLayout[] selectedLayouts;
+
+        ToggleRenderPlan(
+                String key,
+                float availW,
+                float targetPx,
+                StaticLayout[] normalLayouts,
+                StaticLayout[] selectedLayouts) {
+            this.key = key;
+            this.availW = availW;
+            this.targetPx = targetPx;
+            this.normalLayouts = normalLayouts;
+            this.selectedLayouts = selectedLayouts;
+        }
+    }
+
+    private static final class HsvNameRenderPlan {
+        final String key;
+        final StaticLayout layout;
+        final float drawX;
+        final float drawY;
+
+        HsvNameRenderPlan(String key, StaticLayout layout, float drawX, float drawY) {
+            this.key = key;
+            this.layout = layout;
+            this.drawX = drawX;
+            this.drawY = drawY;
+        }
+    }
+
+    private static void ensureToggleFields(Class<?> cls) {
+        if (sToggleFieldsResolved || cls == null) return;
+        synchronized (WorkspaceUiController.class) {
+            if (sToggleFieldsResolved) return;
+            try {
+                fToggleNames = cls.getDeclaredField("names");
+                fToggleNames.setAccessible(true);
+                fToggleBgRect = cls.getDeclaredField("bgRect");
+                fToggleBgRect.setAccessible(true);
+                fToggleSelectIndex = cls.getDeclaredField("selectIndex");
+                fToggleSelectIndex.setAccessible(true);
+                fToggleTextPaint = cls.getDeclaredField("textPaint");
+                fToggleTextPaint.setAccessible(true);
+                fToggleSelectTextPaint = cls.getDeclaredField("selectTextPaint");
+                fToggleSelectTextPaint.setAccessible(true);
+                fToggleFontSize = cls.getDeclaredField("fontSize");
+                fToggleFontSize.setAccessible(true);
+            } catch (Throwable ignored) {}
+            sToggleFieldsResolved = true;
+        }
+    }
+
+    private static void ensureHsvFields(Class<?> cls) {
+        if (sHsvFieldsResolved || cls == null) return;
+        synchronized (WorkspaceUiController.class) {
+            if (sHsvFieldsResolved) return;
+            try {
+                fHsvTitle = cls.getDeclaredField("title");
+                fHsvTitle.setAccessible(true);
+                fHsvNameRect = cls.getDeclaredField("nameRect");
+                fHsvNameRect.setAccessible(true);
+                fHsvValueBgRect = cls.getDeclaredField("valueTextBgRect");
+                fHsvValueBgRect.setAccessible(true);
+                fHsvTextPaint = cls.getDeclaredField("textPaint");
+                fHsvTextPaint.setAccessible(true);
+                fHsvTextColor = cls.getDeclaredField("textColor");
+                fHsvTextColor.setAccessible(true);
+            } catch (Throwable ignored) {}
+            sHsvFieldsResolved = true;
+        }
+    }
+
+    private static String resolveToggleSegmentLabel(Object raw) {
+        String s = raw != null ? raw.toString() : "";
+        if (s.isEmpty() || !TranslationEngine.isDynamicI18nEnabled()) return s;
+        Object mapped = TranslationEngine.dispatch(TranslationEngine.OP_TRANSLATE_STRING, s);
+        return mapped instanceof String ? (String) mapped : s;
+    }
+
+    private static int computeDesiredToggleSwitchBarWidth(View switchView, int usableW, float density) {
+        if (switchView == null) return 0;
+        try {
+            ensureToggleFields(switchView.getClass());
+            if (fToggleNames == null || fToggleFontSize == null) return 0;
+            Object namesObj = fToggleNames.get(switchView);
+            if (!(namesObj instanceof List)) return 0;
+            List<?> names = (List<?>) namesObj;
+            int n = names.size();
+            if (n <= 0) return 0;
+
+            Context ctx = switchView.getContext();
+            DisplayMetrics dm = switchView.getResources().getDisplayMetrics();
+            Locale activeLoc = TranslationEngine.getActiveLocale();
+            Typeface activeTf = ctx != null ? UIFontManager.getActiveTypeface(ctx) : null;
+
+            float origFontPx;
+            Object origTag = switchView.getTag(TAG_TOGGLE_ORIG_FONT_PX);
+            if (origTag instanceof Float && (Float) origTag > 0f) {
+                origFontPx = (Float) origTag;
+            } else {
+                origFontPx = fToggleFontSize.getInt(switchView);
+                if (origFontPx <= 0f) {
+                    origFontPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12f, dm);
+                }
+            }
+
+            Paint basePaint = (fToggleTextPaint != null && fToggleTextPaint.get(switchView) instanceof Paint)
+                    ? (Paint) fToggleTextPaint.get(switchView)
+                    : null;
+            TextPaint tp = TypographyNormalizer.getScratchTextPaint(basePaint);
+            tp.setTextAlign(Paint.Align.LEFT);
+            tp.setTextSize(origFontPx);
+
+            float maxLabelW = 0f;
+            for (int i = 0; i < n; i++) {
+                String label = resolveToggleSegmentLabel(names.get(i));
+                if (label.isEmpty()) continue;
+                String wrapped = TypographyNormalizer.wrapForCanvas(label, activeLoc);
+                TypographyNormalizer.preparePaintForScript(tp, wrapped, activeLoc, activeTf);
+                tp.setTextScaleX(1.0f);
+                tp.setTextSize(origFontPx);
+                float w = TypographyNormalizer.measureHarfBuzzWidth(wrapped, tp);
+                if (w > maxLabelW) maxLabelW = w;
+            }
+
+            int segNeed = Math.round(maxLabelW + 18f * density);
+            int swMargins = 0;
+            if (switchView.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) switchView.getLayoutParams();
+                swMargins = mlp.leftMargin + mlp.rightMargin;
+            }
+            if (swMargins <= 0) {
+                swMargins = Math.round(24f * density);
+            }
+            int minBarW = Math.round(210f * density);
+            int maxBarW = Math.max(minBarW, usableW - Math.round(16f * density));
+            return TypographyNormalizer.clamp(n * segNeed + swMargins, minBarW, maxBarW);
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private static boolean normalizeLiuyebiBar(
+            View liuyebiBar,
+            View root,
+            int usableW,
+            float freeCenterShiftX,
+            float density) {
+        if (liuyebiBar == null) return false;
+        boolean mutated = false;
+        View switchView = findView(liuyebiBar, "switchView", 0);
+        View contentView = findView(liuyebiBar, "contentView", 0);
+        if (contentView != null && switchView != null && switchView.getVisibility() == View.VISIBLE) {
+            ViewGroup.LayoutParams cLp = contentView.getLayoutParams();
+            if (cLp != null && cLp.width > 0) {
+                if (liuyebiBar.getTag(TAG_ORIG_LIUYEBI_W) == null) {
+                    liuyebiBar.setTag(TAG_ORIG_LIUYEBI_W, Integer.valueOf(cLp.width));
+                }
+                int dynamicTargetW = computeDesiredToggleSwitchBarWidth(switchView, usableW, density);
+                if (dynamicTargetW <= 0) {
+                    dynamicTargetW = Math.min(Math.round(284f * density), Math.max(Math.round(210f * density), usableW - Math.round(16f * density)));
+                }
+                if (cLp.width != dynamicTargetW) {
+                    cLp.width = dynamicTargetW;
+                    contentView.setLayoutParams(cLp);
+                    mutated = true;
+                }
+            }
+            if (Math.abs(liuyebiBar.getTranslationX() - freeCenterShiftX) > 0.5f) {
+                liuyebiBar.setTranslationX(freeCenterShiftX);
+                mutated = true;
+            }
+        }
+        for (String lblId : new String[]{"fill_tv", "eraser_tv", "pot_setting_tv"}) {
+            View v = findView(liuyebiBar, lblId, 0);
+            if (v instanceof TextView) {
+                applySingleLineToolbarLabel((TextView) v);
+            }
+        }
+        return mutated;
+    }
+
+    public static void onLiuyebiInitData(Object viewObj) {
+        if (!(viewObj instanceof View) || !isCanvasPopupPolishActive()) return;
+        View liuyebiBar = (View) viewObj;
+        Context ctx = liuyebiBar.getContext();
+        if (ctx == null) return;
+        try {
+            DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+            if (dm.widthPixels <= 0 || dm.density <= 0f) return;
+            View root = liuyebiBar.getRootView();
+            int[] span = computeUsableCanvasSpan(root, dm);
+            normalizeLiuyebiBar(liuyebiBar, root, span[2], span[3], dm.density);
+            View switchView = findView(liuyebiBar, "switchView", 0);
+            if (switchView != null) {
+                switchView.setTag(TAG_TOGGLE_PLAN_KEY, null);
+                switchView.setTag(TAG_TOGGLE_PLAN, null);
+                switchView.invalidate();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public static void onToggleSwitchUpdate(Object viewObj) {
+        if (!(viewObj instanceof View)) return;
+        View switchView = (View) viewObj;
+        try {
+            ensureToggleFields(switchView.getClass());
+            if (fToggleNames != null && fToggleNames.get(switchView) instanceof ArrayList && TranslationEngine.isDynamicI18nEnabled()) {
+                @SuppressWarnings("unchecked")
+                ArrayList<Object> list = (ArrayList<Object>) fToggleNames.get(switchView);
+                if (list != null) {
+                    for (int i = 0; i < list.size(); i++) {
+                        Object raw = list.get(i);
+                        if (raw instanceof String && TranslationEngine.containsChinese((String) raw)) {
+                            Object tr = TranslationEngine.dispatch(TranslationEngine.OP_TRANSLATE_STRING, raw);
+                            if (tr instanceof String) {
+                                list.set(i, tr);
+                            }
+                        }
+                    }
+                }
+            }
+            if (switchView.getTag(TAG_TOGGLE_ORIG_FONT_PX) == null && fToggleFontSize != null) {
+                int fs = fToggleFontSize.getInt(switchView);
+                if (fs > 0) {
+                    switchView.setTag(TAG_TOGGLE_ORIG_FONT_PX, Float.valueOf(fs));
+                }
+            }
+            switchView.setTag(TAG_TOGGLE_PLAN_KEY, null);
+            switchView.setTag(TAG_TOGGLE_PLAN, null);
+            switchView.invalidate();
+            ViewParent p = switchView.getParent();
+            for (int depth = 0; depth < 3 && p instanceof View; depth++) {
+                View pv = (View) p;
+                if (pv.getClass().getName().endsWith("LiuyebiSettingView")) {
+                    onLiuyebiInitData(pv);
+                    break;
+                }
+                p = pv.getParent();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public static Object onDrawToggleSwitchLabels(Object arg) {
+        if (!(arg instanceof Object[])) return null;
+        Object[] args = (Object[]) arg;
+        if (args.length < 2 || !(args[0] instanceof View) || !(args[1] instanceof Canvas)) return null;
+        View switchView = (View) args[0];
+        Canvas canvas = (Canvas) args[1];
+        try {
+            ensureToggleFields(switchView.getClass());
+            if (fToggleNames == null || fToggleBgRect == null || fToggleSelectIndex == null
+                    || fToggleTextPaint == null || fToggleSelectTextPaint == null || fToggleFontSize == null) {
+                return null;
+            }
+            Object origFontObj = switchView.getTag(TAG_TOGGLE_ORIG_FONT_PX);
+            if (!(origFontObj instanceof Float)) {
+                int rawFs = fToggleFontSize.getInt(switchView);
+                origFontObj = Float.valueOf(rawFs > 0 ? rawFs
+                        : TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12f,
+                                switchView.getResources().getDisplayMetrics()));
+                switchView.setTag(TAG_TOGGLE_ORIG_FONT_PX, origFontObj);
+            }
+            float origPx = (Float) origFontObj;
+            if (!TranslationEngine.isTextAutoFitActive()) {
+                int origInt = Math.round(origPx);
+                if (fToggleFontSize.getInt(switchView) != origInt) {
+                    fToggleFontSize.setInt(switchView, origInt);
+                }
+                Paint tp0 = (Paint) fToggleTextPaint.get(switchView);
+                Paint sp0 = (Paint) fToggleSelectTextPaint.get(switchView);
+                if (tp0 != null) tp0.setTextSize(origPx);
+                if (sp0 != null) sp0.setTextSize(origPx);
+                return null;
+            }
+
+            Object namesObj = fToggleNames.get(switchView);
+            Object rectObj = fToggleBgRect.get(switchView);
+            if (!(namesObj instanceof List) || !(rectObj instanceof RectF)) return null;
+            List<?> names = (List<?>) namesObj;
+            RectF bgRect = (RectF) rectObj;
+            int n = names.size();
+            if (n <= 0 || bgRect.width() <= 4f || bgRect.height() <= 4f) return null;
+
+            Paint textPaint = (Paint) fToggleTextPaint.get(switchView);
+            Paint selectPaint = (Paint) fToggleSelectTextPaint.get(switchView);
+            if (textPaint == null || selectPaint == null) return null;
+
+            Context ctx = switchView.getContext();
+            DisplayMetrics dm = switchView.getResources().getDisplayMetrics();
+            float density = dm.density > 0f ? dm.density : 2f;
+            Locale activeLoc = TranslationEngine.getActiveLocale();
+            String locTag = TranslationEngine.getActiveLocaleTag();
+            Typeface activeTf = ctx != null ? UIFontManager.getActiveTypeface(ctx) : null;
+            int tfId = ctx != null ? UIFontManager.getActiveTypefaceIdentity(ctx) : 0;
+
+            StringBuilder keySb = new StringBuilder(96);
+            keySb.append(locTag).append('|').append(tfId).append('|')
+                    .append(Math.round(bgRect.width())).append('x').append(Math.round(bgRect.height()))
+                    .append('|').append(Float.floatToRawIntBits(origPx));
+            String[] labels = new String[n];
+            for (int i = 0; i < n; i++) {
+                String lbl = resolveToggleSegmentLabel(names.get(i));
+                labels[i] = TypographyNormalizer.wrapForCanvas(lbl, activeLoc);
+                keySb.append('|').append(labels[i]);
+            }
+            String key = keySb.toString();
+
+            ToggleRenderPlan plan = null;
+            Object cachedPlanObj = switchView.getTag(TAG_TOGGLE_PLAN);
+            if (key.equals(switchView.getTag(TAG_TOGGLE_PLAN_KEY)) && cachedPlanObj instanceof ToggleRenderPlan) {
+                plan = (ToggleRenderPlan) cachedPlanObj;
+            } else {
+                float segW = bgRect.width() / n;
+                float segH = Math.max(1f, bgRect.height() - 2f * density);
+                int safePad = TypographyNormalizer.clamp(
+                        Math.round(segW * 0.08f), Math.round(4f * density), Math.round(8f * density));
+                int availSegW = Math.max(1, Math.round(segW) - 2 * safePad);
+
+                boolean allowScaleX = true;
+                for (int i = 0; i < n; i++) {
+                    if (TypographyNormalizer.classifyScript(labels[i]) != TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK) {
+                        allowScaleX = false;
+                        break;
+                    }
+                }
+
+                float floorSp = (segW <= 64f * density) ? 8.5f : 9.0f;
+                float floorPx = Math.min(origPx, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, floorSp, dm));
+                float minPx = Math.min(origPx, Math.max(floorPx, origPx * 0.72f));
+
+                TextPaint measureTp = TypographyNormalizer.getScratchTextPaint(textPaint);
+                measureTp.setTextAlign(Paint.Align.LEFT);
+
+                float targetPx = origPx;
+                boolean allFitSingle = false;
+                for (int step = 0; step < 8; step++) {
+                    allFitSingle = true;
+                    for (int i = 0; i < n; i++) {
+                        TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                        measureTp.setTextSize(targetPx);
+                        measureTp.setTextScaleX(1.0f);
+                        float mw = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
+                        float mh = TypographyNormalizer.measureFontMetricsLineHeight(measureTp);
+                        if (mw > availSegW + 0.5f || mh > segH + 1.5f) {
+                            allFitSingle = false;
+                            break;
+                        }
+                    }
+                    if (allFitSingle || targetPx <= minPx) break;
+                    targetPx = Math.max(minPx, targetPx * 0.94f);
+                }
+
+                float targetScaleX = 1.0f;
+                if (!allFitSingle && allowScaleX) {
+                    float maxW = 0f;
+                    measureTp.setTextSize(targetPx);
+                    measureTp.setTextScaleX(1.0f);
+                    for (int i = 0; i < n; i++) {
+                        TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                        float mw = TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp);
+                        if (mw > maxW) maxW = mw;
+                    }
+                    if (maxW > availSegW + 0.5f && maxW > 1f) {
+                        targetScaleX = Math.max(0.90f, Math.min(1.0f, availSegW / maxW));
+                        allFitSingle = true;
+                        for (int i = 0; i < n; i++) {
+                            TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                            measureTp.setTextScaleX(targetScaleX);
+                            if (TypographyNormalizer.measureHarfBuzzWidth(labels[i], measureTp) > availSegW + 0.5f) {
+                                allFitSingle = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                boolean useTwoLines = false;
+                if (!allFitSingle) {
+                    boolean canAllTwo = true;
+                    for (int i = 0; i < n; i++) {
+                        TypographyNormalizer.preparePaintForScript(measureTp, labels[i], activeLoc, activeTf);
+                        measureTp.setTextSize(targetPx);
+                        measureTp.setTextScaleX(1.0f);
+                        float fm2H = 2f * TypographyNormalizer.measureFontMetricsLineHeight(measureTp);
+                        StaticLayout slTest = TypographyNormalizer.buildStaticLayout(
+                                labels[i], measureTp, availSegW, Layout.Alignment.ALIGN_CENTER,
+                                0.96f, 0f, true, 0, null, TypographyNormalizer.containsRtlChars(labels[i]));
+                        if (slTest.getLineCount() > 2
+                                || TypographyNormalizer.getMaxLineWidth(slTest) > availSegW + 0.5f
+                                || slTest.getHeight() > segH + 1f
+                                || fm2H > segH + 2f) {
+                            canAllTwo = false;
+                            break;
+                        }
+                    }
+                    if (canAllTwo) {
+                        useTwoLines = true;
+                        targetScaleX = 1.0f;
+                    }
+                }
+
+                StaticLayout[] normalLayouts = new StaticLayout[n];
+                StaticLayout[] selectedLayouts = new StaticLayout[n];
+                int maxLinesCap = useTwoLines ? 2 : 1;
+                TextUtils.TruncateAt truncMode = (!allFitSingle && !useTwoLines) ? TextUtils.TruncateAt.END : null;
+                if (useTwoLines) {
+                    truncMode = TextUtils.TruncateAt.END;
+                }
+                for (int i = 0; i < n; i++) {
+                    boolean rtl = TypographyNormalizer.containsRtlChars(labels[i]);
+                    TextPaint np = new TextPaint(textPaint);
+                    np.setTextAlign(Paint.Align.LEFT);
+                    np.setTextSize(targetPx);
+                    TypographyNormalizer.preparePaintForScript(np, labels[i], activeLoc, activeTf);
+                    if (allowScaleX) np.setTextScaleX(targetScaleX);
+                    normalLayouts[i] = TypographyNormalizer.buildStaticLayout(
+                            labels[i], np, availSegW, Layout.Alignment.ALIGN_CENTER,
+                            useTwoLines ? 0.96f : 1.0f, 0f, true, maxLinesCap, truncMode, rtl);
+
+                    TextPaint sp = new TextPaint(selectPaint);
+                    sp.setTextAlign(Paint.Align.LEFT);
+                    sp.setTextSize(targetPx);
+                    TypographyNormalizer.preparePaintForScript(sp, labels[i], activeLoc, activeTf);
+                    if (allowScaleX) sp.setTextScaleX(targetScaleX);
+                    selectedLayouts[i] = TypographyNormalizer.buildStaticLayout(
+                            labels[i], sp, availSegW, Layout.Alignment.ALIGN_CENTER,
+                            useTwoLines ? 0.96f : 1.0f, 0f, true, maxLinesCap, truncMode, rtl);
+                }
+
+                plan = new ToggleRenderPlan(key, availSegW, targetPx, normalLayouts, selectedLayouts);
+                switchView.setTag(TAG_TOGGLE_PLAN_KEY, key);
+                switchView.setTag(TAG_TOGGLE_PLAN, plan);
+                fToggleFontSize.setInt(switchView, Math.round(targetPx));
+            }
+
+            int selIdx = fToggleSelectIndex.getInt(switchView);
+            float segW = bgRect.width() / n;
+            int normColor = textPaint.getColor();
+            int selColor = selectPaint.getColor();
+            for (int i = 0; i < n; i++) {
+                boolean selected = (i == selIdx);
+                StaticLayout sl = selected ? plan.selectedLayouts[i] : plan.normalLayouts[i];
+                if (sl == null) continue;
+                sl.getPaint().setColor(selected ? selColor : normColor);
+                float segLeft = bgRect.left + i * segW;
+                float dx = segLeft + (segW - plan.availW) * 0.5f;
+                float dy = bgRect.top + (bgRect.height() - sl.getHeight()) * 0.5f;
+                canvas.save();
+                canvas.translate(dx, dy);
+                sl.draw(canvas);
+                canvas.restore();
+            }
+            return Boolean.TRUE;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static Object onDrawHsvSeekbarName(Object arg) {
+        if (!TranslationEngine.isTextAutoFitActive() || !(arg instanceof Object[])) return null;
+        Object[] args = (Object[]) arg;
+        if (args.length < 2 || !(args[0] instanceof View) || !(args[1] instanceof Canvas)) return null;
+        View hsvView = (View) args[0];
+        Canvas canvas = (Canvas) args[1];
+        try {
+            ensureHsvFields(hsvView.getClass());
+            if (fHsvTitle == null || fHsvNameRect == null || fHsvTextPaint == null || fHsvTextColor == null) {
+                return null;
+            }
+            Object titleObj = fHsvTitle.get(hsvView);
+            Object nameRectObj = fHsvNameRect.get(hsvView);
+            Object paintObj = fHsvTextPaint.get(hsvView);
+            if (!(titleObj instanceof String) || !(nameRectObj instanceof RectF) || !(paintObj instanceof Paint)) {
+                return null;
+            }
+            String titleStr = (String) titleObj;
+            if (titleStr.isEmpty()) return null;
+            RectF nameRect = (RectF) nameRectObj;
+            Paint textPaint = (Paint) paintObj;
+            Object valBgObj = fHsvValueBgRect != null ? fHsvValueBgRect.get(hsvView) : null;
+            RectF valBgRect = (valBgObj instanceof RectF) ? (RectF) valBgObj : null;
+
+            Context ctx = hsvView.getContext();
+            DisplayMetrics dm = hsvView.getResources().getDisplayMetrics();
+            float density = dm.density > 0f ? dm.density : 2f;
+            float leftX = nameRect.left;
+            float maxRight = (valBgRect != null && valBgRect.left > leftX + 16f * density)
+                    ? (valBgRect.left - 6f * density)
+                    : nameRect.right;
+            int availW = Math.max(1, Math.round(maxRight - leftX));
+            float boxH = nameRect.height() > 1f
+                    ? nameRect.height()
+                    : (hsvView.getHeight() > 0 ? hsvView.getHeight() : 20f * density);
+            int textColor = fHsvTextColor.getInt(hsvView);
+
+            Locale activeLoc = TranslationEngine.getActiveLocale();
+            String locTag = TranslationEngine.getActiveLocaleTag();
+            Typeface activeTf = ctx != null ? UIFontManager.getActiveTypeface(ctx) : null;
+            int tfId = ctx != null ? UIFontManager.getActiveTypefaceIdentity(ctx) : 0;
+
+            String resolvedTitle = titleStr;
+            if (TranslationEngine.isDynamicI18nEnabled()) {
+                Object tr = TranslationEngine.dispatch(TranslationEngine.OP_TRANSLATE_STRING, titleStr);
+                if (tr instanceof String) {
+                    resolvedTitle = (String) tr;
+                }
+            }
+            String wrapped = TypographyNormalizer.wrapForCanvas(resolvedTitle, activeLoc);
+            String key = wrapped + "|" + locTag + "|" + tfId + "|" + availW + "|" + Math.round(boxH) + "|" + textColor;
+
+            HsvNameRenderPlan plan;
+            Object cachedPlanObj = hsvView.getTag(TAG_HSV_PLAN);
+            if (key.equals(hsvView.getTag(TAG_HSV_PLAN_KEY)) && cachedPlanObj instanceof HsvNameRenderPlan) {
+                plan = (HsvNameRenderPlan) cachedPlanObj;
+            } else {
+                float origPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12f, dm);
+                float floorPx = Math.min(origPx, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 8.5f, dm));
+                TextPaint tp = new TextPaint(textPaint);
+                tp.setColor(textColor);
+                tp.setTextAlign(Paint.Align.LEFT);
+                TypographyNormalizer.preparePaintForScript(tp, wrapped, activeLoc, activeTf);
+
+                float targetPx = origPx;
+                tp.setTextSize(targetPx);
+                tp.setTextScaleX(1.0f);
+                while (TypographyNormalizer.measureHarfBuzzWidth(wrapped, tp) > availW + 0.5f && targetPx > floorPx) {
+                    targetPx = Math.max(floorPx, targetPx * 0.92f);
+                    tp.setTextSize(targetPx);
+                }
+                float wAfter = TypographyNormalizer.measureHarfBuzzWidth(wrapped, tp);
+                if (wAfter > availW + 0.5f
+                        && TypographyNormalizer.classifyScript(wrapped) == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK
+                        && wAfter > 1f) {
+                    tp.setTextScaleX(Math.max(0.90f, Math.min(1.0f, availW / wAfter)));
+                }
+                boolean rtl = TypographyNormalizer.containsRtlChars(wrapped);
+                StaticLayout sl = TypographyNormalizer.buildStaticLayout(
+                        wrapped, tp, availW, Layout.Alignment.ALIGN_NORMAL,
+                        1.0f, 0f, true, 1, TextUtils.TruncateAt.END, rtl);
+                float drawY = nameRect.centerY() - sl.getHeight() * 0.5f;
+                plan = new HsvNameRenderPlan(key, sl, leftX, drawY);
+                hsvView.setTag(TAG_HSV_PLAN_KEY, key);
+                hsvView.setTag(TAG_HSV_PLAN, plan);
+            }
+
+            if (plan.layout != null) {
+                plan.layout.getPaint().setColor(textColor);
+                canvas.save();
+                canvas.translate(plan.drawX, plan.drawY);
+                plan.layout.draw(canvas);
+                canvas.restore();
+                return Boolean.TRUE;
+            }
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 }

@@ -4,7 +4,10 @@ import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.resolveSingleClass
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.resolveSingleMethod
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toFingerprint
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.emitTranslationDispatch
 import app.morphe.patches.huashijie.core.findMoveResultObjectAfter
 import app.morphe.patches.huashijie.core.hookBottomSheetOnStartDispatch
@@ -14,6 +17,7 @@ import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.thisRegisterIndex
+import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
@@ -21,6 +25,7 @@ private const val TOGGLE_KEY = "libre_canvas_popup_polish"
 private const val WORKSPACE_UI_CONTROLLER =
     "Lapp/morphe/extension/huashijie/WorkspaceUiController;"
 private const val OP_CANVAS_POPUP_POLISH = 73
+private const val OP_ON_LIUYEBI_INIT = 77
 
 @Suppress("unused")
 val canvasPopupLayoutPolishPatch = bytecodePatch(
@@ -80,6 +85,30 @@ val canvasPopupLayoutPolishPatch = bytecodePatch(
         val fastKeyDropdown = MultiVersionResolvers.resolveFastKeyFragmentShowDropdown(classes)
         for (dropdownMethod in listOf(searchDropdown, fastKeyDropdown)) {
             hookPopupShowAsDropDownDispatch(toFingerprint(dropdownMethod), OP_CANVAS_POPUP_POLISH)
+        }
+
+        // Hook LiuyebiSettingView.initData(Z)V so switching Bucket <-> Gradient dynamically
+        // recomputes bar width before Frame 0 instead of resetting to vanilla 210dp.
+        val liuyebiClass = classes.resolveSingleClass("LiuyebiSettingView") {
+            it.type == "Lnet/huanci/hsjpro/paint/views/LiuyebiSettingView;"
+        }
+        val initDataMethod = liuyebiClass.resolveSingleMethod("LiuyebiSettingView.initData(Z)V") { m ->
+            m.name == "initData" &&
+                m.returnType == "V" &&
+                m.parameters.map { it.toString() } == listOf("Z")
+        }
+        var mutableInitData = toMutableMethod(initDataMethod)
+        val retIndices = mutableInitData.implementation!!.instructions.indices
+            .filter { mutableInitData.implementation!!.instructions[it].opcode == Opcode.RETURN_VOID }
+            .reversed()
+        check(retIndices.isNotEmpty()) { "RETURN_VOID not found in LiuyebiSettingView.initData(Z)V" }
+        for (retIdx in retIndices) {
+            mutableInitData = emitTranslationDispatch(
+                method = mutableInitData,
+                insertIndex = retIdx,
+                opCode = OP_ON_LIUYEBI_INIT,
+                preserveLabels = true,
+            ) { m, _ -> m.thisRegisterIndex() }
         }
     }
 }

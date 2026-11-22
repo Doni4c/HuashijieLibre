@@ -102,14 +102,7 @@ public final class UIFontManager {
 
     private static void applyTypefaceRecursive(View v, Typeface tf) {
         if (v instanceof TextView) {
-            TextView tv = (TextView) v;
-            if (tv.getTag(TAG_APPLIED_TYPEFACE) == tf) {
-                return;
-            }
-            Typeface current = tv.getTypeface();
-            int style = current != null ? current.getStyle() : Typeface.NORMAL;
-            tv.setTypeface(tf, style);
-            tv.setTag(TAG_APPLIED_TYPEFACE, tf);
+            applyToSingleTextView((TextView) v, tf);
         } else if (v instanceof ViewGroup) {
             ViewGroup vg = (ViewGroup) v;
             int count = vg.getChildCount();
@@ -117,6 +110,28 @@ public final class UIFontManager {
                 applyTypefaceRecursive(vg.getChildAt(i), tf);
             }
         }
+    }
+
+    /**
+     * Applies the active custom Typeface to a single TextView once per Typeface instance
+     * so script-aware measurement runs against the real font metrics without overhead.
+     */
+    public static boolean applyToSingleTextView(TextView tv, Typeface tf) {
+        if (tv == null || tf == null || tf == Typeface.DEFAULT) {
+            return false;
+        }
+        if (tv.getTag(TAG_APPLIED_TYPEFACE) == tf) {
+            return false;
+        }
+        Typeface current = tv.getTypeface();
+        int style = current != null ? current.getStyle() : Typeface.NORMAL;
+        tv.setTypeface(tf, style);
+        tv.setTag(TAG_APPLIED_TYPEFACE, tf);
+        return true;
+    }
+
+    public static int getActiveTypefaceIdentity(Context context) {
+        return System.identityHashCode(getActiveTypeface(context));
     }
 
     public static Typeface getActiveTypeface(Context context) {
