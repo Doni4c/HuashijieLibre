@@ -13,7 +13,15 @@ import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.ColorFilter;
 import android.graphics.Paint;
+import android.graphics.PixelFormat;
+import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.util.JsonReader;
 import android.util.JsonToken;
 import android.util.Log;
@@ -23,6 +31,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
@@ -45,6 +54,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -142,6 +152,7 @@ public final class TranslationEngine {
     private static final ConcurrentHashMap<Integer, String> sIdMap = new ConcurrentHashMap<>(4096);
     private static final ConcurrentHashMap<String, String> sTextMap = new ConcurrentHashMap<>(8192);
     private static final ConcurrentHashMap<String, String> sRuntimeTranslationCache = new ConcurrentHashMap<>(512);
+    private static final ConcurrentHashMap<Integer, Bitmap> sCleanArrowBitmapCache = new ConcurrentHashMap<>(8);
     private static final ConcurrentHashMap<Class<?>, Field> sItemViewFieldCache = new ConcurrentHashMap<>();
     private static final Set<String> sLoggedAuditKeys = Collections.synchronizedSet(new HashSet<>());
     private static final Set<WeakReference<Activity>> sTrackedActivities =
@@ -174,6 +185,19 @@ public final class TranslationEngine {
     private static long sLastLoadedFileMod = 0;
     private static long sLastOverrideFileMod = 0;
     private static String sCurrentLoadedFileName = "";
+    private static volatile String sLoadedMetadataLocale = "";
+    private static volatile int sPackGeneration = 1;
+
+    private static volatile int sD3FbResId = 0x7f08016c;
+    private static volatile int sD3LrResId = 0x7f08016d;
+    private static volatile int sD3UdResId = 0x7f080175;
+    private static volatile int sD3RotateLrResId = 0x7f080171;
+    private static volatile int sD3RotateUdResId = 0x7f080173;
+    private static volatile int sIcAutoSaveResId = 0x7f0e007d;
+    private static volatile int sIcCoverLostResId = 0x7f0e00d1;
+    private static volatile int sAutoSaveHintResId = 0x7f080073;
+    private static volatile int sDraftCoverLostResId = 0x7f080185;
+    private static volatile boolean sBitmapResIdsResolved = false;
 
     private static final Handler sUiHandler = new Handler(Looper.getMainLooper());
 
@@ -194,6 +218,23 @@ public final class TranslationEngine {
     }
 
     private static void refreshCachedLangKind() {
+        String loc = sLoadedMetadataLocale;
+        if (loc != null && !loc.isEmpty()) {
+            String lower = loc.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("vi")) {
+                sCachedLangKind = 1;
+                return;
+            } else if (lower.startsWith("en")) {
+                sCachedLangKind = 2;
+                return;
+            } else if (lower.startsWith("zh")) {
+                sCachedLangKind = 3;
+                return;
+            } else {
+                sCachedLangKind = 0;
+                return;
+            }
+        }
         String f = getEffectiveFileNameLower();
         if (f.startsWith("vi")) {
             sCachedLangKind = 1;
@@ -240,11 +281,30 @@ public final class TranslationEngine {
                     }
                     return translateById(opCode, res.getString(opCode));
                 }
+                if (arg instanceof android.content.Context) {
+                    android.content.res.Resources res = ((android.content.Context) arg).getResources();
+                    if (res != null) {
+                        String typeName = res.getResourceTypeName(opCode);
+                        if ("array".equals(typeName)) {
+                            return translateArrayById(opCode, res.getStringArray(opCode));
+                        }
+                        return translateById(opCode, res.getString(opCode));
+                    }
+                    return null;
+                }
                 if (arg instanceof String[]) {
                     return translateArrayById(opCode, (String[]) arg);
                 }
-                if (arg instanceof String) {
-                    return translateById(opCode, (String) arg);
+                if (arg instanceof CharSequence) {
+                    String orig = arg.toString();
+                    String trans = translateById(opCode, orig);
+                    return orig.equals(trans) ? arg : trans;
+                }
+                if (arg instanceof Bitmap) {
+                    return translateBitmapById(opCode, (Bitmap) arg);
+                }
+                if (arg instanceof Drawable) {
+                    return translateDrawableById(opCode, (Drawable) arg);
                 }
                 return arg;
             }
@@ -399,7 +459,7 @@ public final class TranslationEngine {
                     return null;
             }
         } catch (Throwable ignored) {
-            if (arg instanceof android.content.res.Resources) {
+            if (arg instanceof android.content.res.Resources || arg instanceof android.content.Context) {
                 return null;
             }
             if (opCode >= 0x7f000000 || opCode < 0
@@ -729,7 +789,25 @@ public final class TranslationEngine {
                     } else {
                         reader.skipValue();
                     }
-                } else if ("__metadata__".equals(section) || "strings_by_name".equals(section)) {
+                } else if ("__metadata__".equals(section)) {
+                    if (reader.peek() == JsonToken.BEGIN_OBJECT) {
+                        reader.beginObject();
+                        while (reader.hasNext()) {
+                            String metaKey = reader.nextName();
+                            if ("locale".equals(metaKey) && reader.peek() == JsonToken.STRING) {
+                                String loc = reader.nextString();
+                                if (loc != null && !loc.trim().isEmpty()) {
+                                    sLoadedMetadataLocale = loc.trim().toLowerCase(Locale.ROOT);
+                                }
+                            } else {
+                                reader.skipValue();
+                            }
+                        }
+                        reader.endObject();
+                    } else {
+                        reader.skipValue();
+                    }
+                } else if ("strings_by_name".equals(section)) {
                     reader.skipValue();
                 } else if (reader.peek() == JsonToken.STRING) {
                     String val = reader.nextString();
@@ -753,8 +831,11 @@ public final class TranslationEngine {
             sIdMap.clear();
             sTextMap.clear();
             sRuntimeTranslationCache.clear();
+            sLoadedMetadataLocale = "";
+            sPackGeneration++;
 
             if (!isDynamicI18nEnabled()) {
+                refreshCachedLangKind();
                 Log.i(TAG, "Dynamic i18n disabled by user config");
                 return;
             }
@@ -796,6 +877,8 @@ public final class TranslationEngine {
                     loadedAny |= applyLanguageJsonBytes(extBytes);
                 }
             }
+
+            refreshCachedLangKind();
 
             if (!loadedAny) {
                 Log.i(TAG, "Language pack unavailable: " + selectedFile);
@@ -2220,6 +2303,20 @@ public final class TranslationEngine {
                         ? ("Xu\u1ea5t b\u1ea3n nh\u00e1p t\u1edbi " + mappedTarget)
                         : ("Export draft to " + mappedTarget);
             }
+            if (trimmed.startsWith("\u4e00\u5171\u753b\u4e86") && trimmed.endsWith("\u7b14")) {
+                String countPart = trimmed.substring(4, trimmed.length() - 1).trim();
+                if (!countPart.isEmpty() && !containsChinese(countPart)) {
+                    String prefix = get("\u4e00\u5171\u753b\u4e86", isVietnamese() ? "\u0110\u00e3 v\u1ebd" : "Drew");
+                    String unit = get("\u7b14", isVietnamese() ? "n\u00e9t" : "strokes");
+                    return prefix + " " + countPart + " " + unit;
+                }
+            }
+            if (trimmed.startsWith("\u4f5c\u753b\u8017\u65f6")) {
+                String restPart = trimmed.substring(4).trim();
+                String transRest = restPart.isEmpty() ? "" : translate(restPart);
+                String prefix = get("\u4f5c\u753b\u8017\u65f6", isVietnamese() ? "Th\u1eddi gian v\u1ebd" : "Drawing time");
+                return transRest.isEmpty() ? prefix : (prefix + ": " + transRest);
+            }
 
             // 8. Dynamic numbered prefix and unit patterns for FastKey, brushes, layers, frames, and presets.
             String dynamicNum = translateDynamicNumberedPattern(trimmed);
@@ -2378,6 +2475,14 @@ public final class TranslationEngine {
         try {
             if (view instanceof TextView) {
                 changed |= translateTextView((TextView) view);
+            } else if (view instanceof ImageView) {
+                Drawable d = ((ImageView) view).getDrawable();
+                if (d instanceof LocalizedDraftPlaceholderDrawable) {
+                    if (((LocalizedDraftPlaceholderDrawable) d).syncWithCurrentPack()) {
+                        view.invalidate();
+                        changed = true;
+                    }
+                }
             }
 
             changed |= translateSwitchTexts(view);
@@ -3314,5 +3419,474 @@ public final class TranslationEngine {
                 rootView.addOnAttachStateChangeListener(globalObserver);
             }
         } catch (Throwable ignored) {}
+    }
+
+    private static void ensureBitmapResourceIdsResolved() {
+        if (sBitmapResIdsResolved || sAppContext == null) {
+            return;
+        }
+        sBitmapResIdsResolved = true;
+        try {
+            int fb = LibreResourceResolver.resolveId(sAppContext, "drawable", "d3_fb", 0);
+            if (fb != 0) sD3FbResId = fb;
+            int lr = LibreResourceResolver.resolveId(sAppContext, "drawable", "d3_lr", 0);
+            if (lr != 0) sD3LrResId = lr;
+            int ud = LibreResourceResolver.resolveId(sAppContext, "drawable", "d3_ud", 0);
+            if (ud != 0) sD3UdResId = ud;
+            int rlr = LibreResourceResolver.resolveId(sAppContext, "drawable", "d3_rotate_lr", 0);
+            if (rlr != 0) sD3RotateLrResId = rlr;
+            int rud = LibreResourceResolver.resolveId(sAppContext, "drawable", "d3_rotate_ud", 0);
+            if (rud != 0) sD3RotateUdResId = rud;
+            int autoSave = LibreResourceResolver.resolveId(sAppContext, "mipmap", "ic_auto_save", 0);
+            if (autoSave != 0) sIcAutoSaveResId = autoSave;
+            int coverLost = LibreResourceResolver.resolveId(sAppContext, "mipmap", "ic_cover_lost", 0);
+            if (coverLost != 0) sIcCoverLostResId = coverLost;
+            int autoHint = LibreResourceResolver.resolveId(sAppContext, "drawable", "auto_save_hint", 0);
+            if (autoHint != 0) sAutoSaveHintResId = autoHint;
+            int draftLost = LibreResourceResolver.resolveId(sAppContext, "drawable", "draft_cover_lost", 0);
+            if (draftLost != 0) sDraftCoverLostResId = draftLost;
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isTargetD3ArrowResId(int resId) {
+        if (resId == 0) return false;
+        ensureBitmapResourceIdsResolved();
+        return resId == sD3FbResId
+                || resId == sD3LrResId
+                || resId == sD3UdResId
+                || resId == sD3RotateLrResId
+                || resId == sD3RotateUdResId;
+    }
+
+    private static int matchDraftPlaceholderKind(int resId) {
+        if (resId == 0) return 0;
+        ensureBitmapResourceIdsResolved();
+        if (resId == sIcAutoSaveResId) return 1;
+        if (resId == sIcCoverLostResId) return 2;
+        if (resId == sAutoSaveHintResId) return 3;
+        if (resId == sDraftCoverLostResId) return 4;
+        return 0;
+    }
+
+    /**
+     * Removes baked Chinese axis labels from 3D arrow bitmaps when a non-Chinese pack is active.
+     */
+    public static Bitmap translateBitmapById(int resId, Bitmap orig) {
+        if (orig == null || orig.isRecycled()) {
+            return orig;
+        }
+        if (!isTargetD3ArrowResId(resId)) {
+            return orig;
+        }
+        if (!sInitialized) {
+            ensureInitialized();
+        }
+        if (!isDynamicI18nEnabled() || isChinesePack()) {
+            return orig;
+        }
+        Bitmap cached = sCleanArrowBitmapCache.get(resId);
+        if (cached != null && !cached.isRecycled()) {
+            return cached;
+        }
+        Bitmap cleaned = stripInteriorTextFromWhiteShape(orig);
+        if (cleaned != null && cleaned != orig) {
+            sCleanArrowBitmapCache.put(resId, cleaned);
+            return cleaned;
+        }
+        return orig;
+    }
+
+    /**
+     * Wraps draft placeholder/missing-cover Drawables so their caption tracks live language state.
+     */
+    public static Drawable translateDrawableById(int resId, Drawable orig) {
+        if (orig == null) {
+            return null;
+        }
+        int kind = matchDraftPlaceholderKind(resId);
+        if (kind == 0) {
+            return orig;
+        }
+        if (orig instanceof LocalizedDraftPlaceholderDrawable) {
+            return orig;
+        }
+        if (!sInitialized) {
+            ensureInitialized();
+        }
+        try {
+            Bitmap origBitmap = extractBitmapFromDrawable(orig);
+            if (origBitmap == null || origBitmap.isRecycled()) {
+                return orig;
+            }
+            android.content.res.Resources res = sAppContext != null ? sAppContext.getResources() : null;
+            if (res == null) {
+                return orig;
+            }
+            boolean isAutoSave = (kind == 1 || kind == 3);
+            boolean isNineHint = (kind == 3 || kind == 4);
+            return new LocalizedDraftPlaceholderDrawable(res, resId, isAutoSave, isNineHint, origBitmap);
+        } catch (Throwable ignored) {
+            return orig;
+        }
+    }
+
+    /**
+     * Intercepts android.resource:// image URIs passed to Glide in DraftAdapter/DraftAdapter2.
+     */
+    public static Object resolveLocalizedDraftModel(Object model) {
+        if (!(model instanceof String)) {
+            return model;
+        }
+        String str = (String) model;
+        if (!str.startsWith("android.resource://")) {
+            return model;
+        }
+        int slashIdx = str.lastIndexOf('/');
+        if (slashIdx < 0 || slashIdx + 1 >= str.length()) {
+            return model;
+        }
+        int resId;
+        try {
+            resId = Integer.parseInt(str.substring(slashIdx + 1));
+        } catch (NumberFormatException ignored) {
+            return model;
+        }
+        int kind = matchDraftPlaceholderKind(resId);
+        if (kind == 0) {
+            return model;
+        }
+        if (!sInitialized) {
+            ensureInitialized();
+        }
+        try {
+            Context ctx = sAppContext;
+            if (ctx == null) {
+                return model;
+            }
+            Drawable baseDrawable = null;
+            try {
+                baseDrawable = ctx.getDrawable(resId);
+            } catch (Throwable ignored) {}
+            if (baseDrawable != null) {
+                Drawable wrapped = translateDrawableById(resId, baseDrawable);
+                if (wrapped instanceof LocalizedDraftPlaceholderDrawable) {
+                    return wrapped;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return model;
+    }
+
+    private static Bitmap extractBitmapFromDrawable(Drawable d) {
+        if (d instanceof BitmapDrawable) {
+            Bitmap b = ((BitmapDrawable) d).getBitmap();
+            if (b != null && !b.isRecycled()) {
+                return b;
+            }
+        }
+        int w = d.getIntrinsicWidth();
+        int h = d.getIntrinsicHeight();
+        if (w <= 0 || h <= 0) {
+            return null;
+        }
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        d.setBounds(0, 0, w, h);
+        d.draw(c);
+        return out;
+    }
+
+    private static Bitmap stripInteriorTextFromWhiteShape(Bitmap src) {
+        try {
+            int w = src.getWidth();
+            int h = src.getHeight();
+            if (w <= 0 || h <= 0) {
+                return src;
+            }
+            int[] pixels = new int[w * h];
+            src.getPixels(pixels, 0, w, 0, 0, w, h);
+            int total = pixels.length;
+            boolean[] visited = new boolean[total];
+            int[] queue = new int[total];
+            int head = 0;
+            int tail = 0;
+
+            for (int x = 0; x < w; x++) {
+                int topIdx = x;
+                if (!isWhiteBarrierPixel(pixels[topIdx]) && !visited[topIdx]) {
+                    visited[topIdx] = true;
+                    queue[tail++] = topIdx;
+                }
+                int botIdx = (h - 1) * w + x;
+                if (!isWhiteBarrierPixel(pixels[botIdx]) && !visited[botIdx]) {
+                    visited[botIdx] = true;
+                    queue[tail++] = botIdx;
+                }
+            }
+            for (int y = 0; y < h; y++) {
+                int leftIdx = y * w;
+                if (!isWhiteBarrierPixel(pixels[leftIdx]) && !visited[leftIdx]) {
+                    visited[leftIdx] = true;
+                    queue[tail++] = leftIdx;
+                }
+                int rightIdx = y * w + (w - 1);
+                if (!isWhiteBarrierPixel(pixels[rightIdx]) && !visited[rightIdx]) {
+                    visited[rightIdx] = true;
+                    queue[tail++] = rightIdx;
+                }
+            }
+
+            while (head < tail) {
+                int idx = queue[head++];
+                int x = idx % w;
+                int y = idx / w;
+                if (x > 0) {
+                    int n = idx - 1;
+                    if (!visited[n] && !isWhiteBarrierPixel(pixels[n])) {
+                        visited[n] = true;
+                        queue[tail++] = n;
+                    }
+                }
+                if (x + 1 < w) {
+                    int n = idx + 1;
+                    if (!visited[n] && !isWhiteBarrierPixel(pixels[n])) {
+                        visited[n] = true;
+                        queue[tail++] = n;
+                    }
+                }
+                if (y > 0) {
+                    int n = idx - w;
+                    if (!visited[n] && !isWhiteBarrierPixel(pixels[n])) {
+                        visited[n] = true;
+                        queue[tail++] = n;
+                    }
+                }
+                if (y + 1 < h) {
+                    int n = idx + w;
+                    if (!visited[n] && !isWhiteBarrierPixel(pixels[n])) {
+                        visited[n] = true;
+                        queue[tail++] = n;
+                    }
+                }
+            }
+
+            boolean changed = false;
+            for (int i = 0; i < total; i++) {
+                if (!visited[i] && pixels[i] != 0xFFFFFFFF) {
+                    pixels[i] = 0xFFFFFFFF;
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                return src;
+            }
+            Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            out.setDensity(src.getDensity());
+            out.setPixels(pixels, 0, w, 0, 0, w, h);
+            return out;
+        } catch (Throwable ignored) {
+            return src;
+        }
+    }
+
+    private static boolean isWhiteBarrierPixel(int argb) {
+        int a = (argb >>> 24) & 0xFF;
+        int r = (argb >>> 16) & 0xFF;
+        int g = (argb >>> 8) & 0xFF;
+        int b = argb & 0xFF;
+        return a > 240 && r > 250 && g > 250 && b > 250;
+    }
+
+    private static final class LocalizedDraftPlaceholderDrawable extends Drawable {
+        private final android.content.res.Resources mResources;
+        private final int mResId;
+        private final boolean mIsAutoSave;
+        private final boolean mIsNineHint;
+        private final Bitmap mOrigBitmap;
+        private final Paint mBitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+        private int mLastGen = -1;
+        private boolean mLastDynamicEnabled = false;
+        private Bitmap mCachedLocalizedBitmap;
+        private final Drawable.ConstantState mConstantState;
+
+        LocalizedDraftPlaceholderDrawable(
+                android.content.res.Resources res,
+                int resId,
+                boolean isAutoSave,
+                boolean isNineHint,
+                Bitmap origBitmap) {
+            this.mResources = res;
+            this.mResId = resId;
+            this.mIsAutoSave = isAutoSave;
+            this.mIsNineHint = isNineHint;
+            this.mOrigBitmap = origBitmap;
+            this.mConstantState = new PlaceholderConstantState(res, resId, isAutoSave, isNineHint, origBitmap);
+        }
+
+        boolean syncWithCurrentPack() {
+            boolean active = isDynamicI18nEnabled() && !isChinesePack();
+            int gen = sPackGeneration;
+            if (active != mLastDynamicEnabled || (active && gen != mLastGen)) {
+                invalidateSelf();
+                return true;
+            }
+            return false;
+        }
+
+        private Bitmap resolveActiveBitmap() {
+            boolean active = isDynamicI18nEnabled() && !isChinesePack();
+            int gen = sPackGeneration;
+            if (!active) {
+                mLastDynamicEnabled = false;
+                mLastGen = gen;
+                return mOrigBitmap;
+            }
+            if (mCachedLocalizedBitmap != null && !mCachedLocalizedBitmap.isRecycled()
+                    && mLastDynamicEnabled && mLastGen == gen) {
+                return mCachedLocalizedBitmap;
+            }
+            mCachedLocalizedBitmap = renderLocalizedPlaceholderBitmap();
+            mLastDynamicEnabled = true;
+            mLastGen = gen;
+            return mCachedLocalizedBitmap != null ? mCachedLocalizedBitmap : mOrigBitmap;
+        }
+
+        private Bitmap renderLocalizedPlaceholderBitmap() {
+            try {
+                int w = mOrigBitmap.getWidth();
+                int h = mOrigBitmap.getHeight();
+                if (w <= 0 || h <= 0) {
+                    return mOrigBitmap;
+                }
+                Bitmap out = mOrigBitmap.copy(Bitmap.Config.ARGB_8888, true);
+                if (out == null) {
+                    return mOrigBitmap;
+                }
+                out.setDensity(mOrigBitmap.getDensity());
+                int cutY = Math.round(h * (mIsNineHint ? 0.70f : 0.58f));
+                if (cutY < 0) cutY = 0;
+                if (cutY >= h) cutY = h - 1;
+                int clearH = h - cutY;
+                if (clearH > 0) {
+                    int[] transparent = new int[w * clearH];
+                    out.setPixels(transparent, 0, w, 0, cutY, w, clearH);
+                }
+                String key = mIsAutoSave ? "\u81ea\u52a8\u4fdd\u5b58" : "\u5c01\u9762\u4e22\u5931";
+                String label = get(key, key);
+                if (label != null && !label.isEmpty()) {
+                    Canvas canvas = new Canvas(out);
+                    Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    p.setColor(0xB48C8C8C);
+                    p.setTextAlign(Paint.Align.CENTER);
+                    if (sAppContext != null) {
+                        Typeface tf = UIFontManager.getActiveTypeface(sAppContext);
+                        if (tf != null) {
+                            p.setTypeface(tf);
+                        }
+                    }
+                    float maxTextW = w * 0.88f;
+                    float textSize = h * (mIsNineHint ? 0.11f : 0.135f);
+                    float minTextSize = Math.max(8f, h * 0.075f);
+                    p.setTextSize(textSize);
+                    while (p.measureText(label) > maxTextW && textSize > minTextSize) {
+                        textSize = Math.max(minTextSize, textSize * 0.92f);
+                        p.setTextSize(textSize);
+                    }
+                    Paint.FontMetrics fm = p.getFontMetrics();
+                    float bandCenterY = cutY + ((h - cutY) * 0.48f);
+                    float baseline = bandCenterY - ((fm.ascent + fm.descent) * 0.5f);
+                    canvas.drawText(label, w * 0.5f, baseline, p);
+                }
+                return out;
+            } catch (Throwable ignored) {
+                return mOrigBitmap;
+            }
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            Bitmap active = resolveActiveBitmap();
+            if (active != null && !active.isRecycled()) {
+                canvas.drawBitmap(active, null, getBounds(), mBitmapPaint);
+            }
+        }
+
+        @Override
+        public int getIntrinsicWidth() {
+            if (mOrigBitmap == null || mOrigBitmap.isRecycled()) return -1;
+            return mResources != null
+                    ? mOrigBitmap.getScaledWidth(mResources.getDisplayMetrics())
+                    : mOrigBitmap.getWidth();
+        }
+
+        @Override
+        public int getIntrinsicHeight() {
+            if (mOrigBitmap == null || mOrigBitmap.isRecycled()) return -1;
+            return mResources != null
+                    ? mOrigBitmap.getScaledHeight(mResources.getDisplayMetrics())
+                    : mOrigBitmap.getHeight();
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            if (mBitmapPaint.getAlpha() != alpha) {
+                mBitmapPaint.setAlpha(alpha);
+                invalidateSelf();
+            }
+        }
+
+        @Override
+        public void setColorFilter(ColorFilter colorFilter) {
+            mBitmapPaint.setColorFilter(colorFilter);
+            invalidateSelf();
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public int getOpacity() {
+            return PixelFormat.TRANSLUCENT;
+        }
+
+        @Override
+        public Drawable.ConstantState getConstantState() {
+            return mConstantState;
+        }
+
+        private static final class PlaceholderConstantState extends Drawable.ConstantState {
+            private final android.content.res.Resources mRes;
+            private final int mId;
+            private final boolean mAutoSave;
+            private final boolean mNineHint;
+            private final Bitmap mOrig;
+
+            PlaceholderConstantState(
+                    android.content.res.Resources res,
+                    int resId,
+                    boolean isAutoSave,
+                    boolean isNineHint,
+                    Bitmap origBitmap) {
+                this.mRes = res;
+                this.mId = resId;
+                this.mAutoSave = isAutoSave;
+                this.mNineHint = isNineHint;
+                this.mOrig = origBitmap;
+            }
+
+            @Override
+            public Drawable newDrawable() {
+                return new LocalizedDraftPlaceholderDrawable(mRes, mId, mAutoSave, mNineHint, mOrig);
+            }
+
+            @Override
+            public Drawable newDrawable(android.content.res.Resources res) {
+                return new LocalizedDraftPlaceholderDrawable(
+                        res != null ? res : mRes, mId, mAutoSave, mNineHint, mOrig);
+            }
+
+            @Override
+            public int getChangingConfigurations() {
+                return 0;
+            }
+        }
     }
 }

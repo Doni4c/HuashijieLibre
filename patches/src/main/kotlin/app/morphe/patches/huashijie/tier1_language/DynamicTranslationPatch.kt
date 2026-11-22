@@ -27,6 +27,7 @@ import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
+import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedClassDef
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile
@@ -49,26 +50,14 @@ private const val OP_TRANSLATE_VIEW = 1
 private const val OP_ATTACH_OBSERVER = 2
 private const val OP_TRANSLATE_AND_OBSERVE = 3
 private const val OP_DIALOG_PRE_SHOW = 4
+private const val OP_TRANSLATE_STRING_ARRAY = 5
 private const val OP_TRANSLATE_STRING = 6
+private const val OP_ON_TOAST_TEXT = 7
 
 private enum class TargetDex {
     CLASSES3,
     CLASSES4,
     OTHER,
-}
-
-private data class CallSiteEdit(
-    val index: Int,
-    val smali: String,
-    val mode: EditMode,
-    val castSmali: String? = null,
-)
-
-private enum class EditMode {
-    INSERT_BEFORE_PRESERVING_LABELS,
-    INSERT_AFTER_NEXT,
-    REPLACE_SINGLE,
-    REPLACE_INVOKE_AND_CAST_AFTER_MOVE,
 }
 
 private val baseActivityOnCreateFingerprint = Fingerprint(
@@ -446,30 +435,214 @@ private fun classifyTargetDex(
     return TargetDex.OTHER
 }
 
-private fun collectClasses3Edits(instructions: List<Instruction>): List<CallSiteEdit> {
-    val edits = mutableListOf<CallSiteEdit>()
-    for (idx in instructions.indices) {
-        val inst = instructions[idx]
-        val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: continue
+private fun methodParamRegister(method: MutableMethod, logicalParamIndex: Int): Int {
+    val impl = requireNotNull(method.implementation) {
+        "Method ${method.definingClass}->${method.name} has no implementation."
+    }
+    val isStatic = AccessFlags.STATIC.isSet(method.accessFlags)
+    var paramRegs = if (isStatic) 0 else 1
+    for (p in method.parameters) {
+        val t = p.type
+        paramRegs += if (t == "J" || t == "D") 2 else 1
+    }
+    var reg = impl.registerCount - paramRegs + if (isStatic) 0 else 1
+    for (i in 0 until logicalParamIndex) {
+        val t = method.parameters[i].type
+        reg += if (t == "J" || t == "D") 2 else 1
+    }
+    return reg
+}
 
-        if ((inst.opcode == Opcode.INVOKE_STATIC || inst.opcode == Opcode.INVOKE_STATIC_RANGE) &&
-            ref.definingClass == "Landroid/widget/Toast;" &&
-            ref.name == "makeText"
-        ) {
+private fun invokeOpcodeName(opcode: Opcode): String = when (opcode) {
+    Opcode.INVOKE_VIRTUAL, Opcode.INVOKE_VIRTUAL_RANGE -> "invoke-virtual"
+    Opcode.INVOKE_SUPER, Opcode.INVOKE_SUPER_RANGE -> "invoke-super"
+    Opcode.INVOKE_DIRECT, Opcode.INVOKE_DIRECT_RANGE -> "invoke-direct"
+    Opcode.INVOKE_STATIC, Opcode.INVOKE_STATIC_RANGE -> "invoke-static"
+    Opcode.INVOKE_INTERFACE, Opcode.INVOKE_INTERFACE_RANGE -> "invoke-interface"
+    else -> error("Unsupported invoke opcode: $opcode")
+}
+
+private fun formatInvokeWithRegs(
+    opcode: Opcode,
+    regs: IntArray,
+    signature: String,
+): String {
+    val base = invokeOpcodeName(opcode)
+    return if (regs.all { it in 0..15 } && opcode !in setOf(
+            Opcode.INVOKE_VIRTUAL_RANGE,
+            Opcode.INVOKE_SUPER_RANGE,
+            Opcode.INVOKE_DIRECT_RANGE,
+            Opcode.INVOKE_STATIC_RANGE,
+            Opcode.INVOKE_INTERFACE_RANGE,
+        )
+    ) {
+        val argStr = regs.joinToString(", ") { "v$it" }
+        "$base {$argStr}, $signature"
+    } else {
+        check(regs.isNotEmpty()) { "Empty registers for range invoke" }
+        "$base/range {v${regs.first()} .. v${regs.last()}}, $signature"
+    }
+}
+
+private fun methodRefSignature(ref: MethodReference): String =
+    "${ref.definingClass}->${ref.name}(${ref.parameterTypes.joinToString("")})${ref.returnType}"
+
+private enum class CallSiteKind {
+    TOAST_MAKE_CHARSEQ,
+    TOAST_MAKE_RESID,
+    SINGLE_ARG_RES_STRING,
+    FORMATTED_GET_STRING,
+}
+
+private data class CallSiteMatch(
+    val index: Int,
+    val kind: CallSiteKind,
+)
+
+private fun classifyStringCallSite(
+    inst: Instruction,
+    instructions: List<Instruction>,
+    idx: Int,
+    isClasses4: Boolean,
+    allowResourcesText: Boolean,
+): CallSiteKind? {
+    val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: return null
+    if (inst.opcode == Opcode.INVOKE_STATIC || inst.opcode == Opcode.INVOKE_STATIC_RANGE) {
+        if (ref.definingClass == "Landroid/widget/Toast;" && ref.name == "makeText") {
             val params = ref.parameterTypes.map { it.toString() }
             if (params == listOf("Landroid/content/Context;", "Ljava/lang/CharSequence;", "I")) {
-                val charSeqReg = invokeArgRegister(inst, 1) ?: continue
+                return CallSiteKind.TOAST_MAKE_CHARSEQ
+            }
+            if (!isClasses4 && params == listOf("Landroid/content/Context;", "I", "I")) {
+                return CallSiteKind.TOAST_MAKE_RESID
+            }
+        }
+        return null
+    }
+    if (inst.opcode != Opcode.INVOKE_VIRTUAL && inst.opcode != Opcode.INVOKE_VIRTUAL_RANGE) {
+        return null
+    }
+    val defCls = ref.definingClass
+    val params = ref.parameterTypes.map { it.toString() }
+    val ret = ref.returnType
+    if (params.size == 1 && params[0] == "I" && instructions.findMoveResultObjectAfter(idx) != null) {
+        if (defCls == "Landroid/content/res/Resources;") {
+            if ((ref.name == "getString" && ret == "Ljava/lang/String;") ||
+                (ref.name == "getStringArray" && ret == "[Ljava/lang/String;") ||
+                (allowResourcesText && ref.name == "getText" && ret == "Ljava/lang/CharSequence;")
+            ) {
+                return CallSiteKind.SINGLE_ARG_RES_STRING
+            }
+        } else if (defCls == "Landroid/content/Context;" ||
+            defCls == "Landroid/app/Activity;" ||
+            defCls == "Landroid/app/Application;" ||
+            defCls == "Landroidx/fragment/app/Fragment;"
+        ) {
+            if (ref.name == "getString" && ret == "Ljava/lang/String;") {
+                return CallSiteKind.SINGLE_ARG_RES_STRING
+            }
+        }
+    }
+    if (params == listOf("I", "[Ljava/lang/Object;") &&
+        ref.name == "getString" &&
+        ret == "Ljava/lang/String;" &&
+        instructions.findMoveResultObjectAfter(idx) != null &&
+        (defCls == "Landroid/app/Activity;" ||
+            defCls == "Landroidx/fragment/app/Fragment;" ||
+            defCls == "Landroid/content/Context;" ||
+            defCls == "Landroid/app/Application;" ||
+            defCls == "Landroid/content/res/Resources;")
+    ) {
+        return CallSiteKind.FORMATTED_GET_STRING
+    }
+    return null
+}
+
+private fun BytecodePatchContext.applySingleCallSitePatch(
+    method: MutableMethod,
+    idx: Int,
+    kind: CallSiteKind,
+    useDispatchOnly: Boolean,
+): MutableMethod {
+    val instrs = method.implementation!!.instructions
+    val inst = instrs[idx]
+    val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: return method
+    val regs = invokeRegisterList(inst)
+
+    when (kind) {
+        CallSiteKind.TOAST_MAKE_CHARSEQ -> {
+            val charSeqReg = regs.getOrNull(1) ?: return method
+            if (!useDispatchOnly) {
                 if (charSeqReg < 16) {
-                    edits += CallSiteEdit(
-                        index = idx,
-                        smali = """
-                            invoke-static {v$charSeqReg}, ${TRANSLATION_ENGINE_CLASS}->onToastText(Ljava/lang/CharSequence;)Ljava/lang/CharSequence;
-                            move-result-object v$charSeqReg
+                    method.addInstructionsPreservingLabels(
+                        idx,
+                        """
+                        invoke-static {v$charSeqReg}, ${TRANSLATION_ENGINE_CLASS}->onToastText(Ljava/lang/CharSequence;)Ljava/lang/CharSequence;
+                        move-result-object v$charSeqReg
                         """.trimIndent(),
-                        mode = EditMode.INSERT_BEFORE_PRESERVING_LABELS,
+                    )
+                } else if (charSeqReg <= 255) {
+                    method.addInstructionsPreservingLabels(
+                        idx,
+                        """
+                        invoke-static/range {v$charSeqReg .. v$charSeqReg}, ${TRANSLATION_ENGINE_CLASS}->onToastText(Ljava/lang/CharSequence;)Ljava/lang/CharSequence;
+                        move-result-object v$charSeqReg
+                        """.trimIndent(),
                     )
                 }
-            } else if (params == listOf("Landroid/content/Context;", "I", "I")) {
+                return method
+            }
+            val (m1, opReg, idx1) = runCatching {
+                resolveLowRegisterAt(method, idx, *regs)
+            }.getOrNull() ?: return method
+            val curRegs1 = invokeRegisterList(m1.implementation!!.instructions[idx1])
+            val curCharReg1 = curRegs1[1]
+            if (curCharReg1 < 16 && m1.implementation!!.instructions[idx1] is FiveRegisterInstruction) {
+                val (m2, tmpReg, idx2) = runCatching {
+                    resolveLowRegisterAt(m1, idx1, opReg, *curRegs1)
+                }.getOrNull() ?: return m1
+                val curRegs2 = invokeRegisterList(m2.implementation!!.instructions[idx2])
+                val curCharReg2 = curRegs2[1]
+                val newRegs = curRegs2.clone()
+                newRegs[1] = tmpReg
+                val curInst = m2.implementation!!.instructions[idx2]
+                m2.replaceInstruction(
+                    idx2,
+                    formatInvokeWithRegs(curInst.opcode, newRegs, methodRefSignature(ref)),
+                )
+                m2.addInstructionsPreservingLabels(
+                    idx2,
+                    """
+                    const/4 v$opReg, $OP_ON_TOAST_TEXT
+                    invoke-static {v$opReg, v$curCharReg2}, $DISPATCH_SIGNATURE
+                    move-result-object v$tmpReg
+                    check-cast v$tmpReg, Ljava/lang/CharSequence;
+                    """.trimIndent(),
+                )
+                return m2
+            } else if (curCharReg1 <= 255) {
+                val (m2, tmpReg, idx2) = runCatching {
+                    resolveLowRegisterAt(m1, idx1, opReg, *curRegs1)
+                }.getOrNull() ?: return m1
+                val curRegs2 = invokeRegisterList(m2.implementation!!.instructions[idx2])
+                val curCharReg2 = curRegs2[1]
+                m2.addInstructionsPreservingLabels(
+                    idx2,
+                    """
+                    const/4 v$opReg, $OP_ON_TOAST_TEXT
+                    move-object/from16 v$tmpReg, v$curCharReg2
+                    invoke-static {v$opReg, v$tmpReg}, $DISPATCH_SIGNATURE
+                    move-result-object v$curCharReg2
+                    check-cast v$curCharReg2, Ljava/lang/CharSequence;
+                    """.trimIndent(),
+                )
+                return m2
+            }
+            return m1
+        }
+
+        CallSiteKind.TOAST_MAKE_RESID -> {
+            if (!useDispatchOnly) {
                 val replacement = when (inst) {
                     is FiveRegisterInstruction ->
                         "invoke-static {v${inst.registerC}, v${inst.registerD}, v${inst.registerE}}, " +
@@ -480,121 +653,246 @@ private fun collectClasses3Edits(instructions: List<Instruction>): List<CallSite
                             "${TRANSLATION_ENGINE_CLASS}->makeTranslatedToast(Landroid/content/Context;II)Landroid/widget/Toast;"
                     }
                     else -> null
-                }
-                if (replacement != null) {
-                    edits += CallSiteEdit(
-                        index = idx,
-                        smali = replacement,
-                        mode = EditMode.REPLACE_SINGLE,
-                    )
-                }
+                } ?: return method
+                method.replaceInstruction(idx, replacement)
+                return method
             }
-            continue
-        }
-
-        if ((inst.opcode == Opcode.INVOKE_VIRTUAL || inst.opcode == Opcode.INVOKE_VIRTUAL_RANGE) &&
-            ref.definingClass == "Landroid/content/res/Resources;" &&
-            ref.parameterTypes.size == 1 &&
-            ref.parameterTypes[0].toString() == "I"
-        ) {
-            val (_, outReg) = instructions.findMoveResultObjectAfter(idx) ?: continue
-            val resReg = invokeArgRegister(inst, 0) ?: continue
-            val idReg = invokeArgRegister(inst, 1) ?: continue
-            if (idReg == outReg) {
-                if (resReg >= 16 || idReg >= 16 || outReg >= 256) {
-                    continue
-                }
-                val castType = when {
-                    ref.name == "getStringArray" && ref.returnType == "[Ljava/lang/String;" -> "[Ljava/lang/String;"
-                    ref.name == "getString" && ref.returnType == "Ljava/lang/String;" -> "Ljava/lang/String;"
-                    else -> null
-                } ?: continue
-                edits += CallSiteEdit(
-                    index = idx,
-                    smali = "invoke-static {v$idReg, v$resReg}, $DISPATCH_SIGNATURE",
-                    mode = EditMode.REPLACE_INVOKE_AND_CAST_AFTER_MOVE,
-                    castSmali = "check-cast v$outReg, $castType",
-                )
-                continue
+            val ctxReg = regs.getOrNull(0) ?: return method
+            val idReg = regs.getOrNull(1) ?: return method
+            val (m1, resReg, idx1) = runCatching {
+                resolveLowRegisterAt(method, idx, *regs)
+            }.getOrNull() ?: return method
+            val r1 = invokeRegisterList(m1.implementation!!.instructions[idx1])
+            val c1 = r1[0]
+            val i1 = r1[1]
+            val d1 = r1[2]
+            if (i1 !in 0..15) return m1
+            val getResLine = if (c1 in 0..15) {
+                "invoke-virtual {v$c1}, Landroid/content/Context;->getResources()Landroid/content/res/Resources;"
+            } else {
+                "invoke-virtual/range {v$c1 .. v$c1}, Landroid/content/Context;->getResources()Landroid/content/res/Resources;"
             }
-            if (idReg >= 16 || outReg >= 16) {
-                continue
+            val replaceToast = if (c1 in 0..15 && resReg in 0..15 && d1 in 0..15) {
+                "invoke-static {v$c1, v$resReg, v$d1}, Landroid/widget/Toast;->makeText(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;"
+            } else {
+                return m1
             }
-            if (ref.name == "getString" && ref.returnType == "Ljava/lang/String;") {
-                edits += CallSiteEdit(
-                    index = idx,
-                    smali = """
-                        invoke-static {v$idReg, v$outReg}, ${TRANSLATION_ENGINE_CLASS}->translateById(ILjava/lang/String;)Ljava/lang/String;
-                        move-result-object v$outReg
-                    """.trimIndent(),
-                    mode = EditMode.INSERT_AFTER_NEXT,
-                )
-            } else if (ref.name == "getStringArray" && ref.returnType == "[Ljava/lang/String;") {
-                edits += CallSiteEdit(
-                    index = idx,
-                    smali = """
-                        invoke-static {v$idReg, v$outReg}, ${TRANSLATION_ENGINE_CLASS}->translateArrayById(I[Ljava/lang/String;)[Ljava/lang/String;
-                        move-result-object v$outReg
-                    """.trimIndent(),
-                    mode = EditMode.INSERT_AFTER_NEXT,
-                )
-            }
-        }
-    }
-    return edits
-}
-
-private fun collectClasses4Edits(instructions: List<Instruction>): List<CallSiteEdit> {
-    val edits = mutableListOf<CallSiteEdit>()
-    for (idx in instructions.indices) {
-        val inst = instructions[idx]
-        if (inst.opcode != Opcode.INVOKE_VIRTUAL && inst.opcode != Opcode.INVOKE_VIRTUAL_RANGE) {
-            continue
-        }
-        val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: continue
-        if (ref.definingClass != "Landroid/content/res/Resources;" ||
-            ref.parameterTypes.size != 1 ||
-            ref.parameterTypes[0].toString() != "I"
-        ) {
-            continue
-        }
-        val (_, outReg) = instructions.findMoveResultObjectAfter(idx) ?: continue
-        val resReg = invokeArgRegister(inst, 0) ?: continue
-        val idReg = invokeArgRegister(inst, 1) ?: continue
-        val castType = when {
-            ref.name == "getStringArray" && ref.returnType == "[Ljava/lang/String;" -> "[Ljava/lang/String;"
-            ref.name == "getString" && ref.returnType == "Ljava/lang/String;" -> "Ljava/lang/String;"
-            else -> null
-        } ?: continue
-
-        if (idReg == outReg) {
-            if (resReg >= 16 || idReg >= 16 || outReg >= 256) {
-                continue
-            }
-            edits += CallSiteEdit(
-                index = idx,
-                smali = "invoke-static {v$idReg, v$resReg}, $DISPATCH_SIGNATURE",
-                mode = EditMode.REPLACE_INVOKE_AND_CAST_AFTER_MOVE,
-                castSmali = "check-cast v$outReg, $castType",
+            m1.replaceInstruction(idx1, replaceToast)
+            m1.addInstructionsPreservingLabels(
+                idx1,
+                """
+                $getResLine
+                move-result-object v$resReg
+                invoke-static {v$i1, v$resReg}, $DISPATCH_SIGNATURE
+                move-result-object v$resReg
+                check-cast v$resReg, Ljava/lang/String;
+                """.trimIndent(),
             )
-            continue
-        }
-        if (idReg >= 16 || outReg >= 16) {
-            continue
+            return m1
         }
 
-        // Route all classes4.dex resource hooks through the single dispatch signature.
-        edits += CallSiteEdit(
-            index = idx,
-            smali = """
-                invoke-static {v$idReg, v$outReg}, $DISPATCH_SIGNATURE
-                move-result-object v$outReg
-                check-cast v$outReg, $castType
-            """.trimIndent(),
-            mode = EditMode.INSERT_AFTER_NEXT,
-        )
+        CallSiteKind.SINGLE_ARG_RES_STRING -> {
+            val (moveIdx, outReg) = instrs.findMoveResultObjectAfter(idx) ?: return method
+            val recvReg = regs.getOrNull(0) ?: return method
+            val idReg = regs.getOrNull(1) ?: return method
+            val castType = when {
+                ref.name == "getStringArray" && ref.returnType == "[Ljava/lang/String;" -> "[Ljava/lang/String;"
+                ref.name == "getText" && ref.returnType == "Ljava/lang/CharSequence;" -> "Ljava/lang/CharSequence;"
+                else -> "Ljava/lang/String;"
+            }
+
+            if (ref.definingClass == "Landroid/content/res/Resources;" &&
+                idReg == outReg && recvReg < 16 && idReg < 16 && outReg < 256
+            ) {
+                method.addInstructions(idx + 2, "check-cast v$outReg, $castType")
+                method.replaceInstruction(idx, "invoke-static {v$idReg, v$recvReg}, $DISPATCH_SIGNATURE")
+                return method
+            }
+
+            if (idReg != outReg && idReg < 16 && outReg < 16) {
+                val bridgeSmali = if (!useDispatchOnly && castType == "Ljava/lang/String;") {
+                    """
+                    invoke-static {v$idReg, v$outReg}, ${TRANSLATION_ENGINE_CLASS}->translateById(ILjava/lang/String;)Ljava/lang/String;
+                    move-result-object v$outReg
+                    """.trimIndent()
+                } else if (!useDispatchOnly && castType == "[Ljava/lang/String;") {
+                    """
+                    invoke-static {v$idReg, v$outReg}, ${TRANSLATION_ENGINE_CLASS}->translateArrayById(I[Ljava/lang/String;)[Ljava/lang/String;
+                    move-result-object v$outReg
+                    """.trimIndent()
+                } else {
+                    """
+                    invoke-static {v$idReg, v$outReg}, $DISPATCH_SIGNATURE
+                    move-result-object v$outReg
+                    check-cast v$outReg, $castType
+                    """.trimIndent()
+                }
+                method.addInstructions(moveIdx + 1, bridgeSmali)
+                return method
+            }
+
+            if (idReg == outReg && outReg <= 255) {
+                val (m1, tmpIdReg, idx1) = runCatching {
+                    resolveLowRegisterAt(method, idx, *regs)
+                }.getOrNull() ?: return method
+                val r1 = invokeRegisterList(m1.implementation!!.instructions[idx1])
+                val i1 = r1.getOrNull(1) ?: return m1
+                m1.addInstructionsPreservingLabels(idx1, "move/from16 v$tmpIdReg, v$i1")
+                val shiftedInstrs = m1.implementation!!.instructions
+                val shiftedInvokeIdx = shiftedInstrs.indices.drop(idx1).firstOrNull { pos ->
+                    val candidateRef = (shiftedInstrs[pos] as? ReferenceInstruction)?.reference as? MethodReference
+                    candidateRef != null && candidateRef.name == ref.name && candidateRef.definingClass == ref.definingClass
+                } ?: return m1
+                val (mMoveIdx, mOutReg) = shiftedInstrs.findMoveResultObjectAfter(shiftedInvokeIdx) ?: return m1
+                if (mOutReg < 16) {
+                    m1.addInstructions(
+                        mMoveIdx + 1,
+                        """
+                        invoke-static {v$tmpIdReg, v$mOutReg}, $DISPATCH_SIGNATURE
+                        move-result-object v$mOutReg
+                        check-cast v$mOutReg, $castType
+                        """.trimIndent(),
+                    )
+                    return m1
+                } else if (mOutReg <= 255) {
+                    val (m2, tmpOutReg, postMoveIdx2) = runCatching {
+                        resolveLowRegisterAt(m1, mMoveIdx + 1, tmpIdReg, mOutReg)
+                    }.getOrNull() ?: return m1
+                    m2.addInstructions(
+                        postMoveIdx2,
+                        """
+                        move-object/from16 v$tmpOutReg, v$mOutReg
+                        invoke-static {v$tmpIdReg, v$tmpOutReg}, $DISPATCH_SIGNATURE
+                        move-result-object v$mOutReg
+                        check-cast v$mOutReg, $castType
+                        """.trimIndent(),
+                    )
+                    return m2
+                }
+                return m1
+            }
+
+            if (idReg != outReg && outReg <= 255) {
+                var curM = method
+                var curPostMove = moveIdx + 1
+                var curId = idReg
+                var curOut = outReg
+                val lowId = if (curId < 16) curId else {
+                    val triple = runCatching {
+                        resolveLowRegisterAt(curM, curPostMove, curId, curOut)
+                    }.getOrNull() ?: return curM
+                    curM = triple.first
+                    curPostMove = triple.third
+                    triple.second
+                }
+                val lowOut = if (curOut < 16) curOut else {
+                    val triple = runCatching {
+                        resolveLowRegisterAt(curM, curPostMove, curId, curOut, lowId)
+                    }.getOrNull() ?: return curM
+                    curM = triple.first
+                    curPostMove = triple.third
+                    triple.second
+                }
+                val sb = StringBuilder()
+                if (lowId != curId) sb.append("move/from16 v$lowId, v$curId\n")
+                if (lowOut != curOut) sb.append("move-object/from16 v$lowOut, v$curOut\n")
+                sb.append("invoke-static {v$lowId, v$lowOut}, $DISPATCH_SIGNATURE\n")
+                sb.append("move-result-object v$curOut\n")
+                sb.append("check-cast v$curOut, $castType")
+                curM.addInstructionsPreservingLabels(curPostMove, sb.toString())
+                return curM
+            }
+            return method
+        }
+
+        CallSiteKind.FORMATTED_GET_STRING -> {
+            if (regs.size != 3) return method
+            val recvReg = regs[0]
+            val idReg = regs[1]
+            val argsReg = regs[2]
+            val (m1, resReg, idx1) = runCatching {
+                resolveLowRegisterAt(method, idx, recvReg, idReg, argsReg)
+            }.getOrNull() ?: return method
+            val r1 = invokeRegisterList(m1.implementation!!.instructions[idx1])
+            val c1 = r1[0]
+            val i1 = r1[1]
+            val a1 = r1[2]
+
+            var curM = m1
+            var curIdx = idx1
+            var curRecv = c1
+            var curId = i1
+            var curArgs = a1
+            val lowId = if (curId < 16) curId else {
+                val t = runCatching {
+                    resolveLowRegisterAt(curM, curIdx, resReg, curRecv, curId, curArgs)
+                }.getOrNull() ?: return curM
+                curM = t.first
+                curIdx = t.third
+                val updatedR = invokeRegisterList(curM.implementation!!.instructions[curIdx])
+                curRecv = updatedR[0]
+                curId = updatedR[1]
+                curArgs = updatedR[2]
+                t.second
+            }
+            val lowArgs = if (curArgs < 16) curArgs else {
+                val t = runCatching {
+                    resolveLowRegisterAt(curM, curIdx, resReg, curRecv, curId, curArgs, lowId)
+                }.getOrNull() ?: return curM
+                curM = t.first
+                curIdx = t.third
+                val updatedR = invokeRegisterList(curM.implementation!!.instructions[curIdx])
+                curRecv = updatedR[0]
+                curId = updatedR[1]
+                curArgs = updatedR[2]
+                t.second
+            }
+
+            val resFetchSmali = when (ref.definingClass) {
+                "Landroid/content/res/Resources;" -> "move-object/from16 v$resReg, v$curRecv"
+                "Landroidx/fragment/app/Fragment;" -> {
+                    val inv = if (curRecv in 0..15) {
+                        "invoke-virtual {v$curRecv}, Landroidx/fragment/app/Fragment;->getResources()Landroid/content/res/Resources;"
+                    } else {
+                        "invoke-virtual/range {v$curRecv .. v$curRecv}, Landroidx/fragment/app/Fragment;->getResources()Landroid/content/res/Resources;"
+                    }
+                    "$inv\nmove-result-object v$resReg"
+                }
+                "Landroid/app/Activity;" -> {
+                    val inv = if (curRecv in 0..15) {
+                        "invoke-virtual {v$curRecv}, Landroid/app/Activity;->getResources()Landroid/content/res/Resources;"
+                    } else {
+                        "invoke-virtual/range {v$curRecv .. v$curRecv}, Landroid/app/Activity;->getResources()Landroid/content/res/Resources;"
+                    }
+                    "$inv\nmove-result-object v$resReg"
+                }
+                else -> {
+                    val inv = if (curRecv in 0..15) {
+                        "invoke-virtual {v$curRecv}, Landroid/content/Context;->getResources()Landroid/content/res/Resources;"
+                    } else {
+                        "invoke-virtual/range {v$curRecv .. v$curRecv}, Landroid/content/Context;->getResources()Landroid/content/res/Resources;"
+                    }
+                    "$inv\nmove-result-object v$resReg"
+                }
+            }
+
+            val prep = StringBuilder()
+            prep.append(resFetchSmali).append('\n')
+            if (lowId != curId) prep.append("move/from16 v$lowId, v$curId\n")
+            if (lowArgs != curArgs) prep.append("move-object/from16 v$lowArgs, v$curArgs\n")
+            prep.append("invoke-static {v$lowId, v$resReg}, $DISPATCH_SIGNATURE\n")
+            prep.append("move-result-object v$resReg\n")
+            prep.append("check-cast v$resReg, Ljava/lang/String;")
+
+            curM.replaceInstruction(
+                curIdx,
+                "invoke-static {v$resReg, v$lowArgs}, Ljava/lang/String;->format(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;",
+            )
+            curM.addInstructionsPreservingLabels(curIdx, prep.toString())
+            return curM
+        }
     }
-    return edits
+    return method
 }
 
 private fun BytecodePatchContext.hookHuanciPackageCallSites(
@@ -603,19 +901,21 @@ private fun BytecodePatchContext.hookHuanciPackageCallSites(
 ) {
     val pendingClasses = mutableListOf<Pair<ClassDef, TargetDex>>()
     classDefForEach { classDef ->
-        if (!classDef.type.startsWith("Lnet/huanci/")) {
+        val isTargetPkg = classDef.type.startsWith("Lnet/huanci/") ||
+            classDef.type.startsWith("Lcom/yalantis/ucrop/") ||
+            classDef.type == "Lo00o00oO/o00O0O0O;"
+        if (!isTargetPkg) {
             return@classDefForEach
         }
         val targetDex = classifyTargetDex(classDef, classes3Dex, classes4Dex)
         if (targetDex == TargetDex.OTHER) {
             return@classDefForEach
         }
+        val isClasses4 = (targetDex == TargetDex.CLASSES4)
         val hasCandidateMethod = classDef.methods.any { m ->
             val instrs = m.implementation?.instructions?.toList() ?: return@any false
-            when (targetDex) {
-                TargetDex.CLASSES3 -> collectClasses3Edits(instrs).isNotEmpty()
-                TargetDex.CLASSES4 -> collectClasses4Edits(instrs).isNotEmpty()
-                TargetDex.OTHER -> false
+            instrs.indices.any { idx ->
+                classifyStringCallSite(instrs[idx], instrs, idx, isClasses4, allowResourcesText = false) != null
             }
         }
         if (hasCandidateMethod) {
@@ -624,31 +924,455 @@ private fun BytecodePatchContext.hookHuanciPackageCallSites(
     }
 
     for ((classDef, targetDex) in pendingClasses) {
+        val isClasses4 = (targetDex == TargetDex.CLASSES4)
         val mutableClass = mutableClassDefBy(classDef)
-        for (method in mutableClass.methods.toList()) {
-            val impl = method.implementation ?: continue
-            val edits = when (targetDex) {
-                TargetDex.CLASSES3 -> collectClasses3Edits(impl.instructions)
-                TargetDex.CLASSES4 -> collectClasses4Edits(impl.instructions)
-                TargetDex.OTHER -> emptyList()
+        val candidateMethods = mutableClass.methods.filter { m ->
+            val instrs = m.implementation?.instructions?.toList() ?: return@filter false
+            instrs.indices.any { idx ->
+                classifyStringCallSite(instrs[idx], instrs, idx, isClasses4, allowResourcesText = false) != null
             }
-            if (edits.isEmpty()) {
-                continue
+        }
+        for (origMethod in candidateMethods) {
+            var currentMethod = origMethod
+            val initialInstrs = currentMethod.implementation!!.instructions.toList()
+            val matchCount = initialInstrs.indices.count { idx ->
+                classifyStringCallSite(initialInstrs[idx], initialInstrs, idx, isClasses4, allowResourcesText = false) != null
             }
-            for (edit in edits.sortedByDescending { it.index }) {
-                when (edit.mode) {
-                    EditMode.INSERT_BEFORE_PRESERVING_LABELS ->
-                        method.addInstructionsPreservingLabels(edit.index, edit.smali)
-                    EditMode.INSERT_AFTER_NEXT ->
-                        method.addInstructions(edit.index + 2, edit.smali)
-                    EditMode.REPLACE_SINGLE ->
-                        method.replaceInstruction(edit.index, edit.smali)
-                    EditMode.REPLACE_INVOKE_AND_CAST_AFTER_MOVE -> {
-                        val cast = requireNotNull(edit.castSmali)
-                        method.addInstructions(edit.index + 2, cast)
-                        method.replaceInstruction(edit.index, edit.smali)
+            for (occ in matchCount - 1 downTo 0) {
+                val instrs = currentMethod.implementation!!.instructions.toList()
+                val matches = instrs.indices.mapNotNull { idx ->
+                    val kind = classifyStringCallSite(instrs[idx], instrs, idx, isClasses4, allowResourcesText = false)
+                    if (kind != null) CallSiteMatch(idx, kind) else null
+                }
+                if (occ >= matches.size) continue
+                val m = matches[occ]
+                currentMethod = applySingleCallSitePatch(
+                    method = currentMethod,
+                    idx = m.index,
+                    kind = m.kind,
+                    useDispatchOnly = isClasses4,
+                )
+            }
+        }
+    }
+}
+
+private fun BytecodePatchContext.hookToastHelper() {
+    val toastHelperClass = allClasses().firstOrNull {
+        it.type == "Lcn/painterclub/painttools/utils/ToastHelper;"
+    } ?: return
+    val mutableClass = mutableClassDefBy(toastHelperClass)
+    for (method in mutableClass.methods.toList()) {
+        if (!AccessFlags.STATIC.isSet(method.accessFlags)) continue
+        val instrs = method.implementation?.instructions?.toList() ?: continue
+        val params = method.parameters.map { it.type }
+        if (params.isNotEmpty() && params[0] == "I") {
+            val matchIndices = instrs.indices.filter { idx ->
+                val inst = instrs[idx]
+                val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference
+                ref != null &&
+                    ref.definingClass == "Landroid/app/Application;" &&
+                    ref.name == "getString" &&
+                    ref.parameterTypes.size == 1 &&
+                    ref.parameterTypes[0].toString() == "I" &&
+                    instrs.findMoveResultObjectAfter(idx) != null
+            }
+            if (matchIndices.isNotEmpty()) {
+                var curMethod = method
+                for (occ in matchIndices.size - 1 downTo 0) {
+                    val curInstrs = curMethod.implementation!!.instructions.toList()
+                    val curMatches = curInstrs.indices.filter { idx ->
+                        val ref = (curInstrs[idx] as? ReferenceInstruction)?.reference as? MethodReference
+                        ref != null &&
+                            ref.definingClass == "Landroid/app/Application;" &&
+                            ref.name == "getString" &&
+                            ref.parameterTypes.size == 1 &&
+                            ref.parameterTypes[0].toString() == "I" &&
+                            curInstrs.findMoveResultObjectAfter(idx) != null
+                    }
+                    if (occ >= curMatches.size) continue
+                    val idx = curMatches[occ]
+                    val regs = invokeRegisterList(curInstrs[idx])
+                    val (updated, tmpIdReg, shiftedIdx) = resolveLowRegisterAt(curMethod, idx, *regs)
+                    val sRegs = invokeRegisterList(updated.implementation!!.instructions[shiftedIdx])
+                    val idReg = sRegs[1]
+                    updated.addInstructionsPreservingLabels(shiftedIdx, "move/from16 v$tmpIdReg, v$idReg")
+                    val afterInstrs = updated.implementation!!.instructions
+                    val shiftedInvokeIdx = afterInstrs.indices.drop(shiftedIdx).first { pos ->
+                        val ref = (afterInstrs[pos] as? ReferenceInstruction)?.reference as? MethodReference
+                        ref != null && ref.definingClass == "Landroid/app/Application;" && ref.name == "getString"
+                    }
+                    val (moveIdx, outReg) = afterInstrs.findMoveResultObjectAfter(shiftedInvokeIdx)!!
+                    if (outReg < 16) {
+                        updated.addInstructions(
+                            moveIdx + 1,
+                            """
+                            invoke-static {v$tmpIdReg, v$outReg}, ${TRANSLATION_ENGINE_CLASS}->translateById(ILjava/lang/String;)Ljava/lang/String;
+                            move-result-object v$outReg
+                            """.trimIndent(),
+                        )
+                    }
+                    curMethod = updated
+                }
+            }
+        } else if (params.isNotEmpty() && params[0] == "Ljava/lang/String;") {
+            val callsToasterShow = instrs.any { inst ->
+                val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference
+                ref != null && ref.definingClass == "Lcom/hjq/toast/Toaster;" && ref.name == "show"
+            }
+            if (callsToasterShow) {
+                val strReg = methodParamRegister(method, 0)
+                if (strReg <= 255) {
+                    val invokeLine = if (strReg < 16) {
+                        "invoke-static {v$strReg}, ${TRANSLATION_ENGINE_CLASS}->onToastText(Ljava/lang/CharSequence;)Ljava/lang/CharSequence;"
+                    } else {
+                        "invoke-static/range {v$strReg .. v$strReg}, ${TRANSLATION_ENGINE_CLASS}->onToastText(Ljava/lang/CharSequence;)Ljava/lang/CharSequence;"
+                    }
+                    method.addInstructions(
+                        0,
+                        """
+                        $invokeLine
+                        move-result-object v$strReg
+                        check-cast v$strReg, Ljava/lang/String;
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun BytecodePatchContext.hookClasses2ToastsAndDrawables() {
+    val decoderCompat = allClasses().firstOrNull {
+        it.type == "Lcom/bumptech/glide/load/resource/drawable/DrawableDecoderCompat;"
+    }
+    if (decoderCompat != null) {
+        val mutableDecoder = mutableClassDefBy(decoderCompat)
+        val getDrawableMethod = mutableDecoder.methods.firstOrNull { m ->
+            m.name == "getDrawable" &&
+                m.parameters.map { it.type } == listOf(
+                    "Landroid/content/Context;",
+                    "Landroid/content/Context;",
+                    "I",
+                    "Landroid/content/res/Resources\$Theme;",
+                ) &&
+                m.implementation != null
+        }
+        if (getDrawableMethod != null) {
+            val idReg = methodParamRegister(getDrawableMethod, 2)
+            if (idReg in 0..15) {
+                val instrs = getDrawableMethod.implementation!!.instructions
+                val retIndices = instrs.indices.filter { instrs[it].opcode == Opcode.RETURN_OBJECT }.reversed()
+                for (retIdx in retIndices) {
+                    val retReg = (getDrawableMethod.getInstruction<OneRegisterInstruction>(retIdx)).registerA
+                    if (retReg in 0..15) {
+                        getDrawableMethod.addInstructionsPreservingLabels(
+                            retIdx,
+                            """
+                            invoke-static {v$idReg, v$retReg}, $DISPATCH_SIGNATURE
+                            move-result-object v$retReg
+                            check-cast v$retReg, Landroid/graphics/drawable/Drawable;
+                            """.trimIndent(),
+                        )
                     }
                 }
+            }
+        }
+    }
+
+    val toasterClass = allClasses().firstOrNull { it.type == "Lcom/hjq/toast/Toaster;" }
+    if (toasterClass != null) {
+        val mutableToaster = mutableClassDefBy(toasterClass)
+        val showMethod = mutableToaster.methods.firstOrNull { m ->
+            m.name == "show" &&
+                m.parameters.map { it.type } == listOf("Ljava/lang/CharSequence;") &&
+                m.implementation != null
+        }
+        if (showMethod != null) {
+            val textReg = methodParamRegister(showMethod, 0)
+            val (updated, opReg, _) = resolveLowRegisterAt(showMethod, 0, textReg)
+            val shiftedTextReg = methodParamRegister(updated, 0)
+            if (shiftedTextReg in 0..15) {
+                updated.addInstructions(
+                    0,
+                    """
+                    const/4 v$opReg, $OP_ON_TOAST_TEXT
+                    invoke-static {v$opReg, v$shiftedTextReg}, $DISPATCH_SIGNATURE
+                    move-result-object v$shiftedTextReg
+                    check-cast v$shiftedTextReg, Ljava/lang/CharSequence;
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val strIdMethod = mutableToaster.methods.firstOrNull { m ->
+            m.name == "stringIdToCharSequence" &&
+                m.parameters.map { it.type } == listOf("I") &&
+                m.implementation != null
+        }
+        if (strIdMethod != null) {
+            val instrs = strIdMethod.implementation!!.instructions.toList()
+            val getTextIdx = instrs.indexOfFirst { inst ->
+                val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference
+                ref != null && ref.definingClass == "Landroid/content/res/Resources;" && ref.name == "getText"
+            }
+            if (getTextIdx >= 0) {
+                val (moveIdx, origOutReg) = instrs.findMoveResultObjectAfter(getTextIdx) ?: (-1 to -1)
+                val regs = invokeRegisterList(instrs[getTextIdx])
+                val resReg = regs.getOrNull(0) ?: -1
+                val idReg = regs.getOrNull(1) ?: -1
+                val retIdx = if (moveIdx >= 0) moveIdx + 1 else -1
+                if (resReg in 0..15 && idReg in 0..15 &&
+                    retIdx in instrs.indices &&
+                    instrs[retIdx].opcode == Opcode.RETURN_OBJECT &&
+                    resReg != idReg
+                ) {
+                    // Use resReg (dead after Resources.getText) so idReg stays Integer across the try/catch block.
+                    strIdMethod.replaceInstruction(moveIdx, "move-result-object v$resReg")
+                    strIdMethod.replaceInstruction(retIdx, "return-object v$resReg")
+                    strIdMethod.addInstructionsPreservingLabels(
+                        retIdx,
+                        """
+                        invoke-static {v$idReg, v$resReg}, $DISPATCH_SIGNATURE
+                        move-result-object v$resReg
+                        check-cast v$resReg, Ljava/lang/CharSequence;
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+    }
+
+    val pickerClasses = mutableListOf<ClassDef>()
+    classDefForEach { classDef ->
+        if (classDef.type.startsWith("Lcom/chs/filepicker/")) {
+            pickerClasses += classDef
+        }
+    }
+    for (classDef in pickerClasses) {
+        val mutableClass = mutableClassDefBy(classDef)
+        for (origMethod in mutableClass.methods.toList()) {
+            val initialInstrs = origMethod.implementation?.instructions?.toList() ?: continue
+            val matchCount = initialInstrs.indices.count { idx ->
+                val kind = classifyStringCallSite(initialInstrs[idx], initialInstrs, idx, isClasses4 = false, allowResourcesText = false)
+                kind == CallSiteKind.TOAST_MAKE_CHARSEQ ||
+                    kind == CallSiteKind.TOAST_MAKE_RESID ||
+                    kind == CallSiteKind.SINGLE_ARG_RES_STRING
+            }
+            if (matchCount == 0) continue
+            var curMethod = origMethod
+            for (occ in matchCount - 1 downTo 0) {
+                val instrs = curMethod.implementation!!.instructions.toList()
+                val matches = instrs.indices.mapNotNull { idx ->
+                    val kind = classifyStringCallSite(instrs[idx], instrs, idx, isClasses4 = false, allowResourcesText = false)
+                    if (kind == CallSiteKind.TOAST_MAKE_CHARSEQ ||
+                        kind == CallSiteKind.TOAST_MAKE_RESID ||
+                        kind == CallSiteKind.SINGLE_ARG_RES_STRING
+                    ) {
+                        CallSiteMatch(idx, kind)
+                    } else {
+                        null
+                    }
+                }
+                if (occ >= matches.size) continue
+                val m = matches[occ]
+                curMethod = applySingleCallSitePatch(curMethod, m.index, m.kind, useDispatchOnly = true)
+            }
+        }
+    }
+}
+
+private fun BytecodePatchContext.hookRxToastAndDraftAdapters() {
+    val rxToastClass = allClasses().firstOrNull {
+        it.sourceFile == "RxToast.java" && it.methods.any { m ->
+            AccessFlags.STATIC.isSet(m.accessFlags) &&
+                m.returnType == "Landroid/widget/Toast;" &&
+                m.parameters.size >= 2 &&
+                m.parameters[0].type == "Landroid/content/Context;" &&
+                m.parameters[1].type == "Ljava/lang/String;"
+        }
+    }
+    if (rxToastClass != null) {
+        val mutableRx = mutableClassDefBy(rxToastClass)
+        for (method in mutableRx.methods.toList()) {
+            if (AccessFlags.STATIC.isSet(method.accessFlags) &&
+                method.returnType == "Landroid/widget/Toast;" &&
+                method.parameters.size >= 2 &&
+                method.parameters[0].type == "Landroid/content/Context;" &&
+                method.parameters[1].type == "Ljava/lang/String;" &&
+                method.implementation != null
+            ) {
+                val strReg = methodParamRegister(method, 1)
+                if (strReg <= 255) {
+                    val invokeLine = if (strReg < 16) {
+                        "invoke-static {v$strReg}, ${TRANSLATION_ENGINE_CLASS}->onToastText(Ljava/lang/CharSequence;)Ljava/lang/CharSequence;"
+                    } else {
+                        "invoke-static/range {v$strReg .. v$strReg}, ${TRANSLATION_ENGINE_CLASS}->onToastText(Ljava/lang/CharSequence;)Ljava/lang/CharSequence;"
+                    }
+                    method.addInstructions(
+                        0,
+                        """
+                        $invokeLine
+                        move-result-object v$strReg
+                        check-cast v$strReg, Ljava/lang/String;
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+    }
+
+    for (adapterType in listOf(
+        "Lnet/huanci/hsjpro/adapter/DraftAdapter;",
+        "Lnet/huanci/hsjpro/adapter/DraftAdapter2;",
+    )) {
+        val adapterDef = allClasses().firstOrNull { it.type == adapterType } ?: continue
+        val mutableAdapter = mutableClassDefBy(adapterDef)
+        val bindMethods = mutableAdapter.methods.filter { m ->
+            m.name == "onBindViewHolder" && m.implementation != null
+        }
+        for (origMethod in bindMethods) {
+            var curMethod = origMethod
+            val initialInstrs = curMethod.implementation!!.instructions.toList()
+            val matchCount = initialInstrs.count { inst ->
+                val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference
+                ref != null &&
+                    ref.definingClass == "Lcom/bumptech/glide/RequestManager;" &&
+                    ref.name == "load" &&
+                    ref.parameterTypes.map { it.toString() } == listOf("Ljava/lang/String;")
+            }
+            for (occ in matchCount - 1 downTo 0) {
+                val instrs = curMethod.implementation!!.instructions.toList()
+                val matches = instrs.indices.filter { idx ->
+                    val ref = (instrs[idx] as? ReferenceInstruction)?.reference as? MethodReference
+                    ref != null &&
+                        ref.definingClass == "Lcom/bumptech/glide/RequestManager;" &&
+                        ref.name == "load" &&
+                        ref.parameterTypes.map { it.toString() } == listOf("Ljava/lang/String;")
+                }
+                if (occ >= matches.size) continue
+                val loadIdx = matches[occ]
+                val regs = invokeRegisterList(instrs[loadIdx])
+                if (regs.size != 2) continue
+                val (updated, scratchReg, shiftedIdx) = runCatching {
+                    resolveLowRegisterAt(curMethod, loadIdx, *regs)
+                }.getOrNull() ?: continue
+                val sRegs = invokeRegisterList(updated.implementation!!.instructions[shiftedIdx])
+                val mgrReg = sRegs[0]
+                val urlReg = sRegs[1]
+                if (mgrReg !in 0..15 || scratchReg !in 0..15) continue
+                val invokeResolve = if (urlReg in 0..15) {
+                    "invoke-static {v$urlReg}, ${TRANSLATION_ENGINE_CLASS}->resolveLocalizedDraftModel(Ljava/lang/Object;)Ljava/lang/Object;"
+                } else {
+                    "invoke-static/range {v$urlReg .. v$urlReg}, ${TRANSLATION_ENGINE_CLASS}->resolveLocalizedDraftModel(Ljava/lang/Object;)Ljava/lang/Object;"
+                }
+                updated.replaceInstruction(
+                    shiftedIdx,
+                    "invoke-virtual {v$mgrReg, v$scratchReg}, Lcom/bumptech/glide/RequestManager;->load(Ljava/lang/Object;)Lcom/bumptech/glide/RequestBuilder;",
+                )
+                updated.addInstructionsPreservingLabels(
+                    shiftedIdx,
+                    """
+                    $invokeResolve
+                    move-result-object v$scratchReg
+                    """.trimIndent(),
+                )
+                curMethod = updated
+            }
+        }
+    }
+}
+
+private fun BytecodePatchContext.hookD3ArrowBitmaps() {
+    for (viewType in listOf(
+        "Lnet/huanci/hsjpro/paint/views/D3MoveView;",
+        "Lnet/huanci/hsjpro/paint/views/D3RotateView;",
+    )) {
+        val viewDef = allClasses().firstOrNull { it.type == viewType } ?: continue
+        val mutableView = mutableClassDefBy(viewDef)
+
+        val showMethod = mutableView.methods.firstOrNull {
+            it.name == "show" && it.parameters.isEmpty() && it.returnType == "V" && it.implementation != null
+        }
+        if (showMethod != null) {
+            val origThis = showMethod.thisRegisterIndex()
+            val (updated, nullReg, _) = resolveLowRegisterAt(showMethod, 0, origThis)
+            val curThis = updated.thisRegisterIndex()
+            val clearFields = listOf("lrBitmap", "udBitmap", "fbBitmap").filter { fname ->
+                mutableView.fields.any { it.name == fname && it.type == "Landroid/graphics/Bitmap;" }
+            }
+            if (clearFields.isNotEmpty() && curThis in 0..15 && nullReg in 0..15) {
+                val sb = StringBuilder("const/4 v$nullReg, 0\n")
+                for (fname in clearFields) {
+                    sb.append("iput-object v$nullReg, v$curThis, $viewType->$fname:Landroid/graphics/Bitmap;\n")
+                }
+                updated.addInstructions(0, sb.toString().trimEnd())
+            }
+        }
+
+        val onDrawMethod = mutableView.methods.firstOrNull {
+            it.name == "onDraw" &&
+                it.parameters.map { p -> p.type } == listOf("Landroid/graphics/Canvas;") &&
+                it.implementation != null
+        } ?: continue
+        var curMethod = onDrawMethod
+        val initialInstrs = curMethod.implementation!!.instructions.toList()
+        val matchCount = initialInstrs.indices.count { idx ->
+            val ref = (initialInstrs[idx] as? ReferenceInstruction)?.reference as? MethodReference
+            ref != null &&
+                ref.definingClass == "Landroid/graphics/BitmapFactory;" &&
+                ref.name == "decodeResource" &&
+                ref.parameterTypes.map { it.toString() } == listOf("Landroid/content/res/Resources;", "I") &&
+                initialInstrs.findMoveResultObjectAfter(idx) != null
+        }
+        for (occ in matchCount - 1 downTo 0) {
+            val instrs = curMethod.implementation!!.instructions.toList()
+            val matches = instrs.indices.filter { idx ->
+                val ref = (instrs[idx] as? ReferenceInstruction)?.reference as? MethodReference
+                ref != null &&
+                    ref.definingClass == "Landroid/graphics/BitmapFactory;" &&
+                    ref.name == "decodeResource" &&
+                    ref.parameterTypes.map { it.toString() } == listOf("Landroid/content/res/Resources;", "I") &&
+                    instrs.findMoveResultObjectAfter(idx) != null
+            }
+            if (occ >= matches.size) continue
+            val decIdx = matches[occ]
+            val regs = invokeRegisterList(instrs[decIdx])
+            if (regs.size != 2) continue
+            val idReg = regs[1]
+            val (moveIdx, outReg) = instrs.findMoveResultObjectAfter(decIdx)!!
+            if (idReg != outReg && idReg < 16 && outReg < 16) {
+                curMethod.addInstructions(
+                    moveIdx + 1,
+                    """
+                    invoke-static {v$idReg, v$outReg}, $DISPATCH_SIGNATURE
+                    move-result-object v$outReg
+                    check-cast v$outReg, Landroid/graphics/Bitmap;
+                    """.trimIndent(),
+                )
+            } else {
+                val (updated, tmpIdReg, shiftedIdx) = runCatching {
+                    resolveLowRegisterAt(curMethod, decIdx, *regs)
+                }.getOrNull() ?: continue
+                val sRegs = invokeRegisterList(updated.implementation!!.instructions[shiftedIdx])
+                updated.addInstructionsPreservingLabels(shiftedIdx, "move/from16 v$tmpIdReg, v${sRegs[1]}")
+                val afterInstrs = updated.implementation!!.instructions
+                val shiftedDec = afterInstrs.indices.drop(shiftedIdx).first { pos ->
+                    val ref = (afterInstrs[pos] as? ReferenceInstruction)?.reference as? MethodReference
+                    ref != null && ref.definingClass == "Landroid/graphics/BitmapFactory;" && ref.name == "decodeResource"
+                }
+                val (mIdx, mOut) = afterInstrs.findMoveResultObjectAfter(shiftedDec)!!
+                if (mOut < 16) {
+                    updated.addInstructions(
+                        mIdx + 1,
+                        """
+                        invoke-static {v$tmpIdReg, v$mOut}, $DISPATCH_SIGNATURE
+                        move-result-object v$mOut
+                        check-cast v$mOut, Landroid/graphics/Bitmap;
+                        """.trimIndent(),
+                    )
+                }
+                curMethod = updated
             }
         }
     }
@@ -988,7 +1712,11 @@ val dynamicTranslationPatch = bytecodePatch(
         hookRecentDelPopupMenu()
         hookAdapterBindTranslations()
 
-        // 5. Global DEX call-site hooks across net/huanci/ in classes3.dex and classes4.dex.
+        // 5. Toast, Glide Drawable, 3D arrow Bitmap, and call-site hooks across DEXs.
+        hookToastHelper()
+        hookClasses2ToastsAndDrawables()
+        hookRxToastAndDraftAdapters()
+        hookD3ArrowBitmaps()
         hookHuanciPackageCallSites(classes3Dex = classes3Dex, classes4Dex = classes4Dex)
         hookHuanciCanvasDrawText()
     }
@@ -1302,7 +2030,6 @@ private fun BytecodePatchContext.hookAdapterBindTranslations() {
 }
 
 private fun isCanvasDrawTextStringCall(inst: Instruction): Boolean {
-    if (inst !is FiveRegisterInstruction) return false
     if (inst.opcode != Opcode.INVOKE_VIRTUAL && inst.opcode != Opcode.INVOKE_VIRTUAL_RANGE) return false
     val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: return false
     if (ref.definingClass != "Landroid/graphics/Canvas;" || ref.name != "drawText" || ref.returnType != "V") {
@@ -1315,7 +2042,11 @@ private fun isCanvasDrawTextStringCall(inst: Instruction): Boolean {
 private fun BytecodePatchContext.hookHuanciCanvasDrawText() {
     val targetClasses = mutableListOf<ClassDef>()
     classDefForEach { classDef ->
-        if (!classDef.type.startsWith("Lnet/huanci/")) return@classDefForEach
+        val isTarget = (classDef.type.startsWith("Lnet/huanci/") &&
+            classDef.type != "Lnet/huanci/hsjpro/paint/views/TextViewVertical;" &&
+            classDef.type != "Lnet/huanci/hsjpro/paint/views/PaintTextView;") ||
+            classDef.type == "Lo00Oo0Oo/o00O00;"
+        if (!isTarget) return@classDefForEach
         val hasDrawText = classDef.methods.any { m ->
             m.implementation?.instructions?.any { isCanvasDrawTextStringCall(it) } == true
         }
@@ -1344,30 +2075,53 @@ private fun BytecodePatchContext.hookHuanciCanvasDrawText() {
                 val updatedMethod = freeTriple.first
                 val scratchReg = freeTriple.second
                 val shiftedIdx = freeTriple.third
-                val shiftedRegs = invokeRegisterList(updatedMethod.implementation!!.instructions[shiftedIdx])
-                if (shiftedRegs.size != 5 || scratchReg !in 0..15 || scratchReg in shiftedRegs || shiftedRegs.any { it !in 0..15 }) {
+                val shiftedInst = updatedMethod.implementation!!.instructions[shiftedIdx]
+                val shiftedRegs = invokeRegisterList(shiftedInst)
+                if (shiftedRegs.size != 5 || scratchReg !in 0..15 || scratchReg in shiftedRegs) {
                     continue
                 }
-                val cReg = shiftedRegs[0]
                 val textReg = shiftedRegs[1]
-                val xReg = shiftedRegs[2]
-                val yReg = shiftedRegs[3]
-                val paintReg = shiftedRegs[4]
-                updatedMethod.replaceInstruction(
-                    shiftedIdx,
-                    "invoke-virtual {v$cReg, v$scratchReg, v$xReg, v$yReg, v$paintReg}, " +
-                        "Landroid/graphics/Canvas;->drawText(Ljava/lang/String;FFLandroid/graphics/Paint;)V",
-                )
-                updatedMethod.addInstructionsPreservingLabels(
-                    shiftedIdx,
-                    """
-                    const/4 v$scratchReg, $OP_TRANSLATE_STRING
-                    ${formatInvokeStatic2(DISPATCH_SIGNATURE, scratchReg, textReg)}
-                    move-result-object v$scratchReg
-                    check-cast v$scratchReg, Ljava/lang/String;
-                    """.trimIndent(),
-                )
-                currentMethod = updatedMethod
+                if (textReg in 0..15 && shiftedRegs.all { it in 0..15 } && shiftedInst is FiveRegisterInstruction) {
+                    val cReg = shiftedRegs[0]
+                    val xReg = shiftedRegs[2]
+                    val yReg = shiftedRegs[3]
+                    val paintReg = shiftedRegs[4]
+                    updatedMethod.replaceInstruction(
+                        shiftedIdx,
+                        "invoke-virtual {v$cReg, v$scratchReg, v$xReg, v$yReg, v$paintReg}, " +
+                            "Landroid/graphics/Canvas;->drawText(Ljava/lang/String;FFLandroid/graphics/Paint;)V",
+                    )
+                    updatedMethod.addInstructionsPreservingLabels(
+                        shiftedIdx,
+                        """
+                        const/4 v$scratchReg, $OP_TRANSLATE_STRING
+                        ${formatInvokeStatic2(DISPATCH_SIGNATURE, scratchReg, textReg)}
+                        move-result-object v$scratchReg
+                        check-cast v$scratchReg, Ljava/lang/String;
+                        """.trimIndent(),
+                    )
+                    currentMethod = updatedMethod
+                } else if (textReg <= 255) {
+                    val opTriple = runCatching {
+                        resolveLowRegisterAt(updatedMethod, shiftedIdx, scratchReg, *shiftedRegs)
+                    }.getOrNull() ?: continue
+                    val curM = opTriple.first
+                    val opReg = opTriple.second
+                    val opIdx = opTriple.third
+                    val curRegs = invokeRegisterList(curM.implementation!!.instructions[opIdx])
+                    val curTextReg = curRegs[1]
+                    curM.addInstructionsPreservingLabels(
+                        opIdx,
+                        """
+                        const/4 v$opReg, $OP_TRANSLATE_STRING
+                        move-object/from16 v$scratchReg, v$curTextReg
+                        ${formatInvokeStatic2(DISPATCH_SIGNATURE, opReg, scratchReg)}
+                        move-result-object v$curTextReg
+                        check-cast v$curTextReg, Ljava/lang/String;
+                        """.trimIndent(),
+                    )
+                    currentMethod = curM
+                }
             }
         }
     }

@@ -106,10 +106,15 @@ internal fun BytecodePatchContext.resolveLowRegisterAt(
         } else {
             excludedSet
         }
-        val lowCandidate = (0 until minOf(expandedImpl.registerCount, 16))
-            .firstOrNull { it !in newExcluded }
-        if (lowCandidate != null) {
-            return Triple(expanded, lowCandidate, shiftedIndex)
+        val liveCandidate = runCatching {
+            expanded.findFreeRegister(shiftedIndex, newExcluded.toList())
+        }.getOrNull()
+        if (liveCandidate != null && liveCandidate in 0..15 && liveCandidate !in newExcluded) {
+            return Triple(expanded, liveCandidate, shiftedIndex)
+        }
+        val topAddedReg = expandedImpl.registerCount - 1
+        if (topAddedReg in 0..15 && topAddedReg !in newExcluded) {
+            return Triple(expanded, topAddedReg, shiftedIndex)
         }
     }
 
