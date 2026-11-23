@@ -547,6 +547,7 @@ public final class TypographyNormalizer {
         public final int origTopMargin;
         public final int origRightMargin;
         public final int origLpGravity;
+        public final float origLpWeight;
 
         private ContainerHeightSnapshot(View v) {
             ViewGroup.LayoutParams lp = v.getLayoutParams();
@@ -563,11 +564,15 @@ public final class TypographyNormalizer {
                 this.origGravity = Gravity.NO_GRAVITY;
             }
             if (lp instanceof LinearLayout.LayoutParams) {
-                this.origLpGravity = ((LinearLayout.LayoutParams) lp).gravity;
+                LinearLayout.LayoutParams llp = (LinearLayout.LayoutParams) lp;
+                this.origLpGravity = llp.gravity;
+                this.origLpWeight = llp.weight;
             } else if (lp instanceof FrameLayout.LayoutParams) {
                 this.origLpGravity = ((FrameLayout.LayoutParams) lp).gravity;
+                this.origLpWeight = 0f;
             } else {
                 this.origLpGravity = -1;
+                this.origLpWeight = 0f;
             }
             if (v instanceof ViewGroup) {
                 ViewGroup vg = (ViewGroup) v;
@@ -810,9 +815,13 @@ public final class TypographyNormalizer {
                 lp.height = c.origLpHeight;
                 lpChanged = true;
             }
-            if (lp instanceof LinearLayout.LayoutParams && ((LinearLayout.LayoutParams) lp).gravity != c.origLpGravity) {
-                ((LinearLayout.LayoutParams) lp).gravity = c.origLpGravity;
-                lpChanged = true;
+            if (lp instanceof LinearLayout.LayoutParams) {
+                LinearLayout.LayoutParams llp = (LinearLayout.LayoutParams) lp;
+                if (llp.gravity != c.origLpGravity || Math.abs(llp.weight - c.origLpWeight) > 0.001f) {
+                    llp.gravity = c.origLpGravity;
+                    llp.weight = c.origLpWeight;
+                    lpChanged = true;
+                }
             } else if (lp instanceof FrameLayout.LayoutParams && ((FrameLayout.LayoutParams) lp).gravity != c.origLpGravity) {
                 ((FrameLayout.LayoutParams) lp).gravity = c.origLpGravity;
                 lpChanged = true;

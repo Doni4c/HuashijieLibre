@@ -5256,6 +5256,15 @@ public final class WorkspaceUiController {
                         }
                     }
                     float stdSingleW = stdTv != null ? measureLabelDesiredWidth(stdTv) : 0f;
+                    float stdWordW = 0f;
+                    if (stdTv != null && stdTv.getText() != null) {
+                        TextPaint stdTp = TypographyNormalizer.getScratchTextPaint(stdTv.getPaint());
+                        TypographyNormalizer.BaselineSnapshot stdSnap = TypographyNormalizer.captureBaseline(stdTv);
+                        if (stdSnap != null && stdSnap.origTextSize > 0f) stdTp.setTextSize(stdSnap.origTextSize);
+                        TypographyNormalizer.preparePaintForScript(
+                                stdTp, stdTv.getText(), TranslationEngine.getActiveLocale(), UIFontManager.getActiveTypeface(ctx));
+                        stdWordW = TranslationEngine.computeMaxWordWidth(stdTp, stdTv.getText().toString());
+                    }
                     boolean stdBreakable = stdTv != null && stdTv.getText() != null
                             && TypographyNormalizer.hasNaturalBreakToken(stdTv.getText());
 
@@ -5280,29 +5289,68 @@ public final class WorkspaceUiController {
 
                     int desiredStdW = stdView != null
                             ? TypographyNormalizer.clamp(
-                                    Math.round((stdBreakable ? Math.max(stdSingleW * 0.72f, stdSingleW + 10f * density) : (stdSingleW + 18f * density))),
-                                    Math.round(54f * density),
-                                    Math.round(stdBreakable ? 74f * density : 94f * density))
-                            : Math.round(54f * density);
-                    float wantSlotText = Math.max(maxSlotWordW + 12f * density, Math.min(maxSlotSingleW + 12f * density, 70f * density));
+                                    Math.round(stdBreakable
+                                            ? Math.max(stdWordW + 10f * density, stdSingleW + 8f * density)
+                                            : (stdSingleW + 10f * density)),
+                                    Math.round(50f * density),
+                                    Math.round(stdBreakable ? 70f * density : 86f * density))
+                            : Math.round(50f * density);
+                    float wantSlotText = Math.max(maxSlotWordW + 9f * density, Math.min(maxSlotSingleW + 9f * density, 68f * density));
                     int desiredSlotW = TypographyNormalizer.clamp(Math.round(wantSlotText),
-                            Math.round(50f * density), Math.round(74f * density));
-                    int desiredContentW = 5 * desiredSlotW + Math.round(8f * density);
-                    int gapPx = Math.round(5f * density);
-                    int maxAllowedShapeW = Math.max(Math.round(240f * density), usableW - Math.round(8f * density));
+                            Math.round(48f * density), Math.round(74f * density));
+                    int desiredContentW = 5 * desiredSlotW + Math.round(4f * density);
+                    int gapPx = Math.round(4f * density);
+                    int maxAllowedShapeW = Math.max(Math.round(240f * density), usableW - Math.round(4f * density));
 
                     int targetStdW = desiredStdW;
                     int targetContentW = desiredContentW;
                     if (targetContentW + targetStdW + gapPx > maxAllowedShapeW) {
                         int availBoth = Math.max(Math.round(224f * density), maxAllowedShapeW - gapPx);
-                        float stdShare = stdBreakable ? 0.23f : 0.30f;
-                        int maxStdCap = Math.max(Math.round(54f * density), Math.round(availBoth * stdShare));
-                        targetStdW = Math.min(desiredStdW, maxStdCap);
-                        targetContentW = Math.max(Math.round(170f * density), availBoth - targetStdW);
+                        int minStdW = stdView != null
+                                ? TypographyNormalizer.clamp(
+                                        Math.round((stdBreakable ? stdWordW : stdSingleW * 0.90f) + 6f * density),
+                                        Math.round(48f * density),
+                                        desiredStdW)
+                                : desiredStdW;
+                        int minSlotW = TypographyNormalizer.clamp(
+                                Math.round(maxSlotWordW + 6f * density),
+                                Math.round(46f * density),
+                                desiredSlotW);
+                        int minContentW = Math.min(availBoth - Math.round(48f * density),
+                                5 * minSlotW + Math.round(4f * density));
+                        if (availBoth <= minContentW + minStdW) {
+                            float totalMin = Math.max(1f, minContentW + minStdW);
+                            int maxStdShare = Math.round(availBoth * 0.28f);
+                            targetStdW = stdView != null
+                                    ? TypographyNormalizer.clamp(
+                                            Math.round(availBoth * (minStdW / totalMin)),
+                                            Math.round(48f * density),
+                                            Math.max(Math.round(48f * density), maxStdShare))
+                                    : desiredStdW;
+                            targetContentW = Math.max(Math.round(170f * density), availBoth - targetStdW);
+                        } else {
+                            int contentSlack = Math.max(0, desiredContentW - minContentW);
+                            int stdSlack = Math.max(0, desiredStdW - minStdW);
+                            int excess = (desiredContentW + desiredStdW) - availBoth;
+                            int totalSlack = Math.max(1, contentSlack + stdSlack);
+                            int cutStd = Math.min(stdSlack, Math.round(excess * (stdSlack / (float) totalSlack)));
+                            int cutContent = Math.min(contentSlack, excess - cutStd);
+                            int leftover = excess - (cutStd + cutContent);
+                            if (leftover > 0 && contentSlack > cutContent) {
+                                int extraC = Math.min(leftover, contentSlack - cutContent);
+                                cutContent += extraC;
+                                leftover -= extraC;
+                            }
+                            if (leftover > 0 && stdSlack > cutStd) {
+                                cutStd += Math.min(leftover, stdSlack - cutStd);
+                            }
+                            targetStdW = desiredStdW - cutStd;
+                            targetContentW = desiredContentW - cutContent;
+                        }
                     }
                     int targetShapeW = Math.min(maxAllowedShapeW, targetContentW + targetStdW + gapPx);
                     if (stdView != null) {
-                        setHorizontalMargins(stdView, Math.round(4f * density), 0);
+                        setHorizontalMargins(stdView, gapPx, 0);
                     }
 
                     if (contentView instanceof ViewGroup) {
@@ -5312,15 +5360,14 @@ public final class WorkspaceUiController {
                         for (int k = 0; k < cvGroup.getChildCount(); k++) {
                             if (cvGroup.getChildAt(k).getVisibility() != View.GONE) visTotal++;
                         }
-                        int outerM = Math.round(3f * density);
-                        int innerSlotPadH = Math.round(1f * density);
+                        int outerM = Math.round(2f * density);
                         for (int k = 0; k < cvGroup.getChildCount(); k++) {
                             View slot = cvGroup.getChildAt(k);
                             if (slot.getVisibility() == View.GONE) continue;
                             TypographyNormalizer.captureContainerBaseline(slot);
                             setHorizontalMargins(slot, visIdx == 0 ? outerM : 0, visIdx == visTotal - 1 ? outerM : 0);
-                            if (slot.getPaddingLeft() != innerSlotPadH || slot.getPaddingRight() != innerSlotPadH) {
-                                slot.setPadding(innerSlotPadH, slot.getPaddingTop(), innerSlotPadH, slot.getPaddingBottom());
+                            if (slot.getPaddingLeft() != 0 || slot.getPaddingRight() != 0) {
+                                slot.setPadding(0, slot.getPaddingTop(), 0, slot.getPaddingBottom());
                             }
                             if (slot instanceof LinearLayout) {
                                 ((LinearLayout) slot).setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
@@ -5396,10 +5443,10 @@ public final class WorkspaceUiController {
                     }
 
                     if (autoFitOn && !shapeTvs.isEmpty()) {
-                        int perSlotW = Math.max(1, (targetContentW - Math.round(6f * density)) / 5);
-                        int slotInnerW = Math.max(1, perSlotW - Math.round(2f * density));
+                        int perSlotW = Math.max(1, (targetContentW - Math.round(4f * density)) / 5);
+                        int slotInnerW = perSlotW;
                         int safeSlotPad = TypographyNormalizer.clamp(
-                                Math.round(slotInnerW * 0.08f), Math.round(3f * density), Math.round(6f * density));
+                                Math.round(slotInnerW * 0.04f), Math.round(2f * density), Math.round(3.5f * density));
                         int slotAvailTextW = Math.max(1, slotInnerW - 2 * safeSlotPad);
                         int hardAvailH = measureTextSlotAvailH(shapeStripRow, shapeTvs.get(0), density);
 
@@ -5414,7 +5461,7 @@ public final class WorkspaceUiController {
                         }
                         if (stdTv != null && stdTv.getText() != null && stdTv.getText().length() > 0) {
                             int safeStdPad = TypographyNormalizer.clamp(
-                                    Math.round(targetStdW * 0.08f), Math.round(3f * density), Math.round(7f * density));
+                                    Math.round(targetStdW * 0.05f), Math.round(2.5f * density), Math.round(5f * density));
                             int stdAvailTextW = Math.max(1, targetStdW - 2 * safeStdPad);
                             members.add(new TypographyNormalizer.GroupMember(
                                     stdTv, stdTv.getText().toString(), stdAvailTextW, hardAvailH, safeStdPad, safeStdPad, true, stdClickView));
@@ -5803,7 +5850,7 @@ public final class WorkspaceUiController {
             View liquefyPhone = findView(root, "liquefy_phone_view", 0);
             if (liquefyPhone != null && liquefyPhone.getVisibility() == View.VISIBLE) {
                 TypographyNormalizer.captureContainerBaseline(liquefyPhone);
-                int minPadH = Math.round(6 * density);
+                int minPadH = Math.round(3 * density);
                 int minPadB = Math.max(liquefyPhone.getPaddingBottom(), Math.round(5 * density));
                 if (liquefyPhone.getPaddingLeft() != minPadH
                         || liquefyPhone.getPaddingRight() != minPadH
@@ -5811,9 +5858,11 @@ public final class WorkspaceUiController {
                     liquefyPhone.setPadding(minPadH, liquefyPhone.getPaddingTop(), minPadH, minPadB);
                     mutated = true;
                 }
-                int liqMarginPx = Math.round(2 * density);
+                int liqMarginPx = Math.round(1 * density);
                 ViewGroup buttonRow = null;
                 List<TextView> liqTvs = new ArrayList<>(6);
+                List<View> liqSlots = new ArrayList<>(6);
+                List<TypographyNormalizer.ContainerHeightSnapshot> liqSlotSnaps = new ArrayList<>(6);
                 String[] liqIds = new String[]{
                         "liquefy_type_tv",
                         "liquid_recreate_tv_phone",
@@ -5835,14 +5884,17 @@ public final class WorkspaceUiController {
                             }
                         }
                         liqTvs.add(lTv);
-                        if (lTv.getParent() instanceof View) {
-                            View slot = (View) lTv.getParent();
-                            TypographyNormalizer.captureContainerBaseline(slot);
+                        View slot = (lTv.getParent() instanceof View) ? (View) lTv.getParent() : null;
+                        TypographyNormalizer.ContainerHeightSnapshot slotSnap = null;
+                        if (slot != null) {
+                            slotSnap = TypographyNormalizer.captureContainerBaseline(slot);
                             setHorizontalMargins(slot, liqMarginPx, liqMarginPx);
                             if (slot.getParent() instanceof ViewGroup && buttonRow == null) {
                                 buttonRow = (ViewGroup) slot.getParent();
                             }
                         }
+                        liqSlots.add(slot);
+                        liqSlotSnaps.add(slotSnap);
                     }
                 }
                 if (autoFitOn && !liqTvs.isEmpty() && buttonRow != null) {
@@ -5860,19 +5912,84 @@ public final class WorkspaceUiController {
                             mutated = true;
                         }
                     }
-                    int rowW = buttonRow.getWidth() > 0 ? buttonRow.getWidth() : usableW;
+                    int parentInnerW = liquefyPhone.getWidth() > 0
+                            ? Math.max(1, liquefyPhone.getWidth() - 2 * minPadH)
+                            : Math.max(1, usableW - 2 * minPadH);
+                    int rowW = Math.max(buttonRow.getWidth(), parentInnerW);
                     int count = Math.max(1, liqTvs.size());
                     int totalMargins = count * 2 * liqMarginPx;
-                    int slotW = Math.max(1, (rowW - buttonRow.getPaddingLeft() - buttonRow.getPaddingRight() - totalMargins) / count);
-                    int safePad = TypographyNormalizer.clamp(
-                            Math.round(slotW * 0.06f), Math.round(2f * density), Math.round(5f * density));
-                    int textAvailW = Math.max(1, slotW - 2 * safePad);
-                    List<TypographyNormalizer.GroupMember> liqMembers = new ArrayList<>(count);
-                    for (int i = 0; i < liqTvs.size(); i++) {
+                    int netRowW = Math.max(1, rowW - buttonRow.getPaddingLeft() - buttonRow.getPaddingRight() - totalMargins);
+                    float equalSlotW = netRowW / (float) count;
+                    int safePad = Math.round(1.5f * density);
+
+                    Locale activeLoc = TranslationEngine.getActiveLocale();
+                    Typeface activeTf = UIFontManager.getActiveTypeface(ctx);
+                    float[] reqSlotW = new float[count];
+                    float[] donorFloor = new float[count];
+                    float[] allocW = new float[count];
+                    float totalDeficit = 0f;
+                    float totalSlack = 0f;
+                    int minFloorPx = Math.round(42f * density);
+                    float maxCapW = equalSlotW * 1.48f;
+                    float minDonorCapW = equalSlotW * 0.72f;
+
+                    for (int i = 0; i < count; i++) {
                         TextView lTv = liqTvs.get(i);
                         CharSequence cs = lTv.getText();
+                        float wordW = 0f;
+                        if (cs != null && cs.length() > 0) {
+                            TextPaint lTp = TypographyNormalizer.getScratchTextPaint(lTv.getPaint());
+                            TypographyNormalizer.BaselineSnapshot lSnap = TypographyNormalizer.captureBaseline(lTv);
+                            if (lSnap != null && lSnap.origTextSize > 0f) lTp.setTextSize(lSnap.origTextSize);
+                            TypographyNormalizer.preparePaintForScript(lTp, cs, activeLoc, activeTf);
+                            wordW = TranslationEngine.computeMaxWordWidth(lTp, cs.toString());
+                        }
+                        reqSlotW[i] = Math.min(maxCapW, Math.max(minFloorPx, wordW + 2 * safePad + 5f * density));
+                        donorFloor[i] = Math.max(minDonorCapW, reqSlotW[i] + 2f * density);
+                        if (reqSlotW[i] > equalSlotW) {
+                            totalDeficit += (reqSlotW[i] - equalSlotW);
+                        } else if (donorFloor[i] < equalSlotW) {
+                            totalSlack += (equalSlotW - donorFloor[i]);
+                        }
+                    }
+
+                    boolean redistributed = totalDeficit > 1f && totalSlack > 1f && (buttonRow instanceof LinearLayout);
+                    if (redistributed) {
+                        float donate = Math.min(totalDeficit, totalSlack);
+                        for (int i = 0; i < count; i++) {
+                            if (reqSlotW[i] > equalSlotW) {
+                                allocW[i] = equalSlotW + ((reqSlotW[i] - equalSlotW) * (donate / totalDeficit));
+                            } else if (donorFloor[i] < equalSlotW) {
+                                allocW[i] = equalSlotW - ((equalSlotW - donorFloor[i]) * (donate / totalSlack));
+                            } else {
+                                allocW[i] = equalSlotW;
+                            }
+                        }
+                    } else {
+                        for (int i = 0; i < count; i++) {
+                            allocW[i] = equalSlotW;
+                        }
+                    }
+
+                    List<TypographyNormalizer.GroupMember> liqMembers = new ArrayList<>(count);
+                    for (int i = 0; i < count; i++) {
+                        TextView lTv = liqTvs.get(i);
+                        View slot = liqSlots.get(i);
+                        TypographyNormalizer.ContainerHeightSnapshot slotSnap = liqSlotSnaps.get(i);
+                        if (buttonRow instanceof LinearLayout && slot != null && slot.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                            LinearLayout.LayoutParams llp = (LinearLayout.LayoutParams) slot.getLayoutParams();
+                            int targetLpW = redistributed ? 0 : (slotSnap != null ? slotSnap.origLpWidth : llp.width);
+                            float targetWeight = redistributed ? Math.max(1f, allocW[i]) : (slotSnap != null ? slotSnap.origLpWeight : 1f);
+                            if (llp.width != targetLpW || Math.abs(llp.weight - targetWeight) > 0.05f) {
+                                llp.width = targetLpW;
+                                llp.weight = targetWeight;
+                                slot.setLayoutParams(llp);
+                                mutated = true;
+                            }
+                        }
+                        CharSequence cs = lTv.getText();
                         if (cs == null || cs.length() == 0) continue;
-                        View slot = (lTv.getParent() instanceof View) ? (View) lTv.getParent() : null;
+                        int textAvailW = Math.max(1, Math.round(allocW[i]) - 2 * safePad);
                         liqMembers.add(new TypographyNormalizer.GroupMember(
                                 lTv, cs.toString(), textAvailW, 0, safePad, safePad, true, slot));
                     }
