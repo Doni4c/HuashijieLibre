@@ -97,6 +97,7 @@ public final class WorkspaceUiController {
     private static final int TAG_TOGGLE_PLAN = 0x7e09865e;
     private static final int TAG_HSV_PLAN_KEY = 0x7e09865f;
     private static final int TAG_HSV_PLAN = 0x7e098660;
+    private static final int TAG_REPLAY_ORIG_TOP_DRAWABLE_BOUNDS = 0x7e098661;
     private static final int SYNTHETIC_SWITCH_ID_BASE = 0x7e098540;
 
     private static final Pattern PATTERN_DYNAMIC_NUMERIC =
@@ -6621,6 +6622,412 @@ public final class WorkspaceUiController {
         return mutated;
     }
 
+    private static boolean isInsideReplayBottomBar(View v) {
+        if (v == null) return false;
+        if (matchesId(v, "replay_bottom_view", 0x7f090b0c)) return true;
+        ViewParent cur = v.getParent();
+        for (int depth = 0; cur instanceof View && depth < 5; depth++) {
+            View pv = (View) cur;
+            if (matchesId(pv, "replay_bottom_view", 0x7f090b0c)) {
+                return true;
+            }
+            cur = pv.getParent();
+        }
+        return false;
+    }
+
+    private static int[] ensureReplayOrigTopDrawableSaved(TextView tv) {
+        if (tv == null) return null;
+        Object existing = tv.getTag(TAG_REPLAY_ORIG_TOP_DRAWABLE_BOUNDS);
+        if (existing instanceof int[]) {
+            return (int[]) existing;
+        }
+        Drawable[] ds = tv.getCompoundDrawables();
+        Drawable topD = (ds != null && ds.length > 1) ? ds[1] : null;
+        if (topD == null && Build.VERSION.SDK_INT >= 17) {
+            Drawable[] rds = tv.getCompoundDrawablesRelative();
+            topD = (rds != null && rds.length > 1) ? rds[1] : null;
+        }
+        int left = 0;
+        int top = 0;
+        int right = 0;
+        int bottom = 0;
+        if (topD != null) {
+            Rect b = topD.getBounds();
+            if (b != null && b.width() > 0 && b.height() > 0) {
+                left = b.left;
+                top = b.top;
+                right = b.right;
+                bottom = b.bottom;
+            } else {
+                right = Math.max(0, topD.getIntrinsicWidth());
+                bottom = Math.max(0, topD.getIntrinsicHeight());
+            }
+        }
+        int[] snap = new int[]{
+            left,
+            top,
+            right,
+            bottom,
+            tv.getCompoundDrawablePadding(),
+            tv.getIncludeFontPadding() ? 1 : 0,
+            (Build.VERSION.SDK_INT >= 28 && tv.isFallbackLineSpacing()) ? 1 : 0
+        };
+        tv.setTag(TAG_REPLAY_ORIG_TOP_DRAWABLE_BOUNDS, snap);
+        return snap;
+    }
+
+    private static boolean restoreReplayTopDrawableBaseline(TextView tv) {
+        if (tv == null) return false;
+        Object obj = tv.getTag(TAG_REPLAY_ORIG_TOP_DRAWABLE_BOUNDS);
+        if (!(obj instanceof int[])) return false;
+        int[] snap = (int[]) obj;
+        boolean mutated = false;
+        Drawable[] ds = tv.getCompoundDrawables();
+        Drawable topD = (ds != null && ds.length > 1) ? ds[1] : null;
+        boolean useRelative = false;
+        if (topD == null && Build.VERSION.SDK_INT >= 17) {
+            ds = tv.getCompoundDrawablesRelative();
+            topD = (ds != null && ds.length > 1) ? ds[1] : null;
+            useRelative = (topD != null);
+        }
+        if (topD != null && snap[2] > snap[0] && snap[3] > snap[1]) {
+            Rect cur = topD.getBounds();
+            if (cur.left != snap[0] || cur.top != snap[1] || cur.right != snap[2] || cur.bottom != snap[3]) {
+                topD = topD.mutate();
+                topD.setBounds(snap[0], snap[1], snap[2], snap[3]);
+                if (useRelative && Build.VERSION.SDK_INT >= 17) {
+                    tv.setCompoundDrawablesRelative(ds[0], topD, ds[2], ds[3]);
+                } else {
+                    tv.setCompoundDrawables(ds[0], topD, ds[2], ds[3]);
+                }
+                mutated = true;
+            }
+        }
+        if (tv.getCompoundDrawablePadding() != snap[4]) {
+            tv.setCompoundDrawablePadding(snap[4]);
+            mutated = true;
+        }
+        boolean wantIncPad = snap[5] != 0;
+        if (tv.getIncludeFontPadding() != wantIncPad) {
+            tv.setIncludeFontPadding(wantIncPad);
+            mutated = true;
+        }
+        if (Build.VERSION.SDK_INT >= 28) {
+            boolean wantFallbackLs = snap[6] != 0;
+            if (tv.isFallbackLineSpacing() != wantFallbackLs) {
+                tv.setFallbackLineSpacing(wantFallbackLs);
+                mutated = true;
+            }
+        }
+        tv.setTag(TAG_REPLAY_ORIG_TOP_DRAWABLE_BOUNDS, null);
+        return mutated;
+    }
+
+    /**
+     * Synchronizes icon box bounds, top-anchored slot alignment, font padding metrics, and uniform
+     * peer font size across all FrameLayout button slots inside ReplayActivity replay_bottom_view,
+     * including stacked toggle twins (pause_btn/play_btn and normal_mode/strengthen_mode).
+     */
+    public static boolean optimizeReplayBottomBar(View root) {
+        return optimizeReplayBottomBarInternal(root, ++sSolverPassEpoch);
+    }
+
+    private static boolean optimizeReplayBottomBarInternal(View root, int epoch) {
+        if (root == null || !TranslationEngine.isTextAutoFitActive()) return false;
+        if (!TranslationEngine.resolveHostActivityName(root).endsWith("ReplayActivity")) {
+            return false;
+        }
+        try {
+            View bottomView = findView(root, "replay_bottom_view", 0x7f090b0c);
+            if (!(bottomView instanceof ViewGroup) || bottomView.getVisibility() == View.GONE) {
+                return false;
+            }
+            ViewGroup bottomGroup = (ViewGroup) bottomView;
+            LinearLayout bottomRow = null;
+            for (int i = 0; i < bottomGroup.getChildCount(); i++) {
+                View ch = bottomGroup.getChildAt(i);
+                if (ch instanceof LinearLayout
+                        && ((LinearLayout) ch).getOrientation() == LinearLayout.HORIZONTAL) {
+                    bottomRow = (LinearLayout) ch;
+                    break;
+                }
+            }
+            if (bottomRow == null || bottomRow.getVisibility() == View.GONE) {
+                return false;
+            }
+
+            DisplayMetrics dm = bottomRow.getResources().getDisplayMetrics();
+            float density = dm.density;
+            if (density <= 0f) return false;
+
+            boolean mutated = false;
+            TypographyNormalizer.captureContainerBaseline(bottomGroup);
+            TypographyNormalizer.captureContainerBaseline(bottomRow);
+            unclipContainerSafely(bottomGroup);
+            unclipContainerSafely(bottomRow);
+
+            if (bottomRow.isBaselineAligned()) {
+                bottomRow.setBaselineAligned(false);
+                mutated = true;
+            }
+            int rowGrav = bottomRow.getGravity();
+            if ((rowGrav & Gravity.VERTICAL_GRAVITY_MASK) != Gravity.TOP) {
+                bottomRow.setGravity((rowGrav & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.TOP);
+                mutated = true;
+            }
+
+            List<ViewGroup> activeSlots = new ArrayList<>(6);
+            List<TextView> allButtonTvs = new ArrayList<>(8);
+            List<ViewGroup> ownerSlots = new ArrayList<>(8);
+            float totalWeight = 0f;
+            boolean needTallFontMetrics = false;
+
+            for (int i = 0; i < bottomRow.getChildCount(); i++) {
+                View slotView = bottomRow.getChildAt(i);
+                if (!(slotView instanceof ViewGroup) || slotView.getVisibility() == View.GONE) {
+                    continue;
+                }
+                ViewGroup slot = (ViewGroup) slotView;
+                TypographyNormalizer.captureContainerBaseline(slot);
+                ViewGroup.LayoutParams rawSlp = slot.getLayoutParams();
+                if (rawSlp instanceof LinearLayout.LayoutParams) {
+                    LinearLayout.LayoutParams slp = (LinearLayout.LayoutParams) rawSlp;
+                    boolean slpChanged = false;
+                    if (slp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                        slp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                        slpChanged = true;
+                    }
+                    if ((slp.gravity & Gravity.VERTICAL_GRAVITY_MASK) != Gravity.TOP) {
+                        slp.gravity = (slp.gravity <= 0)
+                                ? Gravity.TOP
+                                : ((slp.gravity & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.TOP);
+                        slpChanged = true;
+                    }
+                    if (slpChanged) {
+                        slot.setLayoutParams(slp);
+                        mutated = true;
+                    }
+                    totalWeight += (slp.weight > 0f ? slp.weight : 1f);
+                } else {
+                    totalWeight += 1f;
+                }
+
+                boolean hasVisibleChild = false;
+                for (int j = 0; j < slot.getChildCount(); j++) {
+                    View sub = slot.getChildAt(j);
+                    if (sub instanceof TextView && sub.getVisibility() == View.VISIBLE) {
+                        hasVisibleChild = true;
+                        break;
+                    }
+                }
+                for (int j = 0; j < slot.getChildCount(); j++) {
+                    View sub = slot.getChildAt(j);
+                    if (!(sub instanceof TextView)) continue;
+                    TextView tv = (TextView) sub;
+                    if (tv.getVisibility() == View.GONE) {
+                        mutated |= TranslationEngine.translateSingleTextView(tv);
+                    } else if (hasVisibleChild && tv.getVisibility() == View.INVISIBLE) {
+                        mutated |= TranslationEngine.translateSingleTextView(tv);
+                        tv.setVisibility(View.GONE);
+                        mutated = true;
+                    }
+                    TypographyNormalizer.captureBaseline(tv);
+                    ensureReplayOrigTopDrawableSaved(tv);
+                    CharSequence cs = tv.getText();
+                    if (tv.getIncludeFontPadding()
+                            || (cs != null && (TypographyNormalizer.containsNonAscii(cs)
+                                    || TypographyNormalizer.classifyScript(cs)
+                                            == TypographyNormalizer.SCRIPT_COMPLEX_SHAPING_OR_TALL))) {
+                        needTallFontMetrics = true;
+                    }
+                    allButtonTvs.add(tv);
+                    ownerSlots.add(slot);
+                }
+                activeSlots.add(slot);
+            }
+
+            if (activeSlots.size() < 2 || allButtonTvs.size() < 2 || totalWeight <= 0f) {
+                return mutated;
+            }
+
+            int targetIconH = Math.round(20f * density);
+            int refPadTop = Math.round(5f * density);
+            int refPadBot = Math.round(5f * density);
+            int refDrawablePad = Math.round(4f * density);
+            View backRef = findView(bottomRow, "back_btn", 0x7f0900f5);
+            if (backRef instanceof TextView) {
+                TextView backTv = (TextView) backRef;
+                TypographyNormalizer.BaselineSnapshot backSnap = TypographyNormalizer.captureBaseline(backTv);
+                int[] backOrigD = ensureReplayOrigTopDrawableSaved(backTv);
+                if (backOrigD != null && (backOrigD[3] - backOrigD[1]) > 0) {
+                    targetIconH = backOrigD[3] - backOrigD[1];
+                    refDrawablePad = backOrigD[4];
+                }
+                if (backSnap != null) {
+                    refPadTop = backSnap.origPadT;
+                    refPadBot = backSnap.origPadB;
+                }
+            }
+
+            int targetFlpGrav = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            for (int i = 0; i < allButtonTvs.size(); i++) {
+                TextView tv = allButtonTvs.get(i);
+                int[] origD = ensureReplayOrigTopDrawableSaved(tv);
+                Drawable[] ds = tv.getCompoundDrawables();
+                Drawable topD = (ds != null && ds.length > 1) ? ds[1] : null;
+                boolean useRel = false;
+                if (topD == null && Build.VERSION.SDK_INT >= 17) {
+                    ds = tv.getCompoundDrawablesRelative();
+                    topD = (ds != null && ds.length > 1) ? ds[1] : null;
+                    useRel = (topD != null);
+                }
+                if (topD != null && origD != null) {
+                    int origW = origD[2] - origD[0];
+                    int origH = origD[3] - origD[1];
+                    if (origW > 0 && origH > 0) {
+                        int scaledW = (origH == targetIconH)
+                                ? origW
+                                : Math.max(1, Math.round(origW * (targetIconH / (float) origH)));
+                        Rect cur = topD.getBounds();
+                        if (cur.left != 0 || cur.top != 0 || cur.right != scaledW || cur.bottom != targetIconH) {
+                            topD = topD.mutate();
+                            topD.setBounds(0, 0, scaledW, targetIconH);
+                            if (useRel && Build.VERSION.SDK_INT >= 17) {
+                                tv.setCompoundDrawablesRelative(ds[0], topD, ds[2], ds[3]);
+                            } else {
+                                tv.setCompoundDrawables(ds[0], topD, ds[2], ds[3]);
+                            }
+                            mutated = true;
+                        }
+                    }
+                }
+                if (tv.getCompoundDrawablePadding() != refDrawablePad) {
+                    tv.setCompoundDrawablePadding(refDrawablePad);
+                    mutated = true;
+                }
+                if (tv.getPaddingTop() != refPadTop || tv.getPaddingBottom() != refPadBot) {
+                    tv.setPadding(tv.getPaddingLeft(), refPadTop, tv.getPaddingRight(), refPadBot);
+                    mutated = true;
+                }
+                if (needTallFontMetrics) {
+                    if (!tv.getIncludeFontPadding()) {
+                        tv.setIncludeFontPadding(true);
+                        mutated = true;
+                    }
+                    if (Build.VERSION.SDK_INT >= 28 && !tv.isFallbackLineSpacing()) {
+                        tv.setFallbackLineSpacing(true);
+                        mutated = true;
+                    }
+                }
+                ViewGroup.LayoutParams rawLp = tv.getLayoutParams();
+                if (rawLp instanceof android.widget.FrameLayout.LayoutParams) {
+                    android.widget.FrameLayout.LayoutParams flp =
+                            (android.widget.FrameLayout.LayoutParams) rawLp;
+                    boolean flpChanged = false;
+                    if (flp.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+                        flp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                        flpChanged = true;
+                    }
+                    if (flp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                        flp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                        flpChanged = true;
+                    }
+                    if (flp.gravity != targetFlpGrav) {
+                        flp.gravity = targetFlpGrav;
+                        flpChanged = true;
+                    }
+                    if (flpChanged) {
+                        tv.setLayoutParams(flp);
+                        mutated = true;
+                    }
+                }
+                if (tv.getGravity() != targetFlpGrav) {
+                    tv.setGravity(targetFlpGrav);
+                    mutated = true;
+                }
+                if (Build.VERSION.SDK_INT >= 17 && tv.getTextAlignment() != View.TEXT_ALIGNMENT_CENTER) {
+                    tv.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                    mutated = true;
+                }
+            }
+
+            int rowW = bottomRow.getWidth();
+            if (rowW <= 0) {
+                rowW = computeUsableCanvasSpan(root, dm)[2];
+            }
+            int innerRowW = Math.max(1, rowW - bottomRow.getPaddingLeft() - bottomRow.getPaddingRight());
+            List<TypographyNormalizer.GroupMember> members = new ArrayList<>(allButtonTvs.size());
+            for (int i = 0; i < allButtonTvs.size(); i++) {
+                TextView tv = allButtonTvs.get(i);
+                ViewGroup slot = ownerSlots.get(i);
+                CharSequence cs = tv.getText();
+                if (cs == null || cs.length() == 0) continue;
+                float w = 1f;
+                if (slot.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                    float lw = ((LinearLayout.LayoutParams) slot.getLayoutParams()).weight;
+                    if (lw > 0f) w = lw;
+                }
+                int slotW = slot.getWidth() > 0
+                        ? slot.getWidth()
+                        : Math.max(1, Math.round(innerRowW * (w / totalWeight)));
+                int safePad = TypographyNormalizer.clamp(
+                        Math.round(slotW * 0.06f), Math.round(2f * density), Math.round(4f * density));
+                int textAvail = Math.max(1, slotW - slot.getPaddingLeft() - slot.getPaddingRight() - 2 * safePad);
+                members.add(new TypographyNormalizer.GroupMember(
+                        tv, cs.toString(), textAvail, 0, safePad, safePad, true, tv));
+            }
+            if (members.size() >= 2) {
+                mutated |= solveStripPeerGroup(
+                        bottomRow,
+                        members,
+                        TypographyNormalizer.ARCHETYPE_VERTICAL_ELASTIC_STRIP,
+                        Math.round(18f * density),
+                        true,
+                        false,
+                        false,
+                        0,
+                        epoch,
+                        "replayBottomBar_" + activeSlots.size(),
+                        density);
+
+                Locale activeLoc = TranslationEngine.getActiveLocale();
+                Typeface activeTf = UIFontManager.getActiveTypeface(bottomRow.getContext());
+                int maxSolvedSlotH = 0;
+                for (int i = 0; i < members.size(); i++) {
+                    TypographyNormalizer.GroupMember m = members.get(i);
+                    if (m.plan == null) continue;
+                    TextPaint tp = TypographyNormalizer.getScratchTextPaint(m.tv.getPaint());
+                    TypographyNormalizer.preparePaintForScript(tp, m.text, activeLoc, activeTf);
+                    tp.setTextSize(m.tv.getTextSize());
+                    tp.setTextScaleX(m.tv.getTextScaleX());
+                    StaticLayout sl = TypographyNormalizer.buildStaticLayout(
+                            m.text,
+                            tp,
+                            m.safeAvailW,
+                            Layout.Alignment.ALIGN_CENTER,
+                            m.tv.getLineSpacingMultiplier(),
+                            m.tv.getLineSpacingExtra(),
+                            m.tv.getIncludeFontPadding(),
+                            m.plan.targetLines,
+                            m.plan.useEllipsis ? TextUtils.TruncateAt.END : null,
+                            TypographyNormalizer.containsRtlChars(m.text));
+                    int memberH = refPadTop + targetIconH + refDrawablePad + sl.getHeight() + refPadBot;
+                    if (memberH > maxSolvedSlotH) {
+                        maxSolvedSlotH = memberH;
+                    }
+                }
+                if (maxSolvedSlotH > 0 && Math.abs(bottomRow.getMinimumHeight() - maxSolvedSlotH) > 1) {
+                    bottomRow.setMinimumHeight(maxSolvedSlotH);
+                    mutated = true;
+                }
+            }
+            return mutated;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     /**
      * Phase 2 static horizontal button-strip solver for generic horizontal icon-above-text rows
      * inside popups and sub-panels (excluding RecyclerView/ListView/ScrollView lists),
@@ -6628,7 +7035,10 @@ public final class WorkspaceUiController {
      */
     public static boolean solveAllCanvasStripPeerGroups(View root) {
         if (root == null || !TranslationEngine.isTextAutoFitActive()) return false;
-        return solveGenericIconRowsRecursive(root, ++sSolverPassEpoch, 0);
+        int epoch = ++sSolverPassEpoch;
+        boolean mutated = optimizeReplayBottomBarInternal(root, epoch);
+        mutated |= solveGenericIconRowsRecursive(root, epoch, 0);
+        return mutated;
     }
 
     private static boolean solveGenericIconRowsRecursive(View v, int epoch, int depth) {
@@ -6641,6 +7051,7 @@ public final class WorkspaceUiController {
                 || cls.endsWith("ShapeSettingView")
                 || cls.endsWith("XuanQuSettingView")
                 || cls.endsWith("LiquefySettingPhoneView")
+                || matchesId(v, "replay_bottom_view", 0x7f090b0c)
                 || isExportRowView(v)) {
             return false;
         }
@@ -6700,6 +7111,9 @@ public final class WorkspaceUiController {
         if (tv.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP) != null) {
             return true;
         }
+        if (isInsideReplayBottomBar(tv)) {
+            return true;
+        }
         ViewParent p = tv.getParent();
         for (int depth = 0; p instanceof View && depth < 5; depth++) {
             View pv = (View) p;
@@ -6745,7 +7159,9 @@ public final class WorkspaceUiController {
         if ("libre_settings_root".equals(v.getTag())) return false;
         mutated |= TypographyNormalizer.restoreContainerBaseline(v);
         if (v instanceof TextView) {
-            mutated |= TypographyNormalizer.restoreBaseline((TextView) v);
+            TextView tv = (TextView) v;
+            mutated |= TypographyNormalizer.restoreBaseline(tv);
+            mutated |= restoreReplayTopDrawableBaseline(tv);
         }
         if (v instanceof ViewGroup) {
             ViewGroup vg = (ViewGroup) v;

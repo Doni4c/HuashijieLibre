@@ -3182,6 +3182,18 @@ public final class TranslationEngine {
         });
     }
 
+    public static boolean translateSingleTextView(TextView tv) {
+        if (tv == null || !isDynamicI18nEnabled()) return false;
+        if (!sInitialized) {
+            ensureInitialized();
+        }
+        try {
+            return translateTextView(tv);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     private static boolean translateTextView(TextView tv) {
         attachTextWatcherIfNeeded(tv);
         WorkspaceUiController.centerShareLabelIfApplicable(tv);
