@@ -596,8 +596,11 @@ public final class TypographyNormalizer {
     }
 
     /**
-     * Pure result of evaluating Candidate States 1..5 in memory without mutating UI Views.
+     * Pure result of evaluating Candidate States 1..5 (including State 3B) in memory without mutating UI Views.
      */
+    public static final int STATE_SINGLE_WORD_3B1 = 31;
+    public static final int STATE_SINGLE_WORD_3B2 = 32;
+
     public static final class CandidatePlan {
         public final int state;
         public final float targetPx;
@@ -606,6 +609,7 @@ public final class TypographyNormalizer {
         public final int neededDeltaH;
         public final boolean useEllipsis;
         public final boolean extremeOutlier;
+        public final int resolvedSafeInsetPx;
 
         public CandidatePlan(
                 int state,
@@ -615,6 +619,18 @@ public final class TypographyNormalizer {
                 int neededDeltaH,
                 boolean useEllipsis,
                 boolean extremeOutlier) {
+            this(state, targetPx, targetScaleX, targetLines, neededDeltaH, useEllipsis, extremeOutlier, 0);
+        }
+
+        public CandidatePlan(
+                int state,
+                float targetPx,
+                float targetScaleX,
+                int targetLines,
+                int neededDeltaH,
+                boolean useEllipsis,
+                boolean extremeOutlier,
+                int resolvedSafeInsetPx) {
             this.state = state;
             this.targetPx = targetPx;
             this.targetScaleX = targetScaleX;
@@ -622,6 +638,7 @@ public final class TypographyNormalizer {
             this.neededDeltaH = neededDeltaH;
             this.useEllipsis = useEllipsis;
             this.extremeOutlier = extremeOutlier;
+            this.resolvedSafeInsetPx = Math.max(0, resolvedSafeInsetPx);
         }
     }
 
@@ -1007,8 +1024,38 @@ public final class TypographyNormalizer {
         return Math.min(origPx, Math.max(origPx * 0.82f, floorSpPx));
     }
 
+    public static float computeSingleWordSurvivalFloorPx(float origPx, DisplayMetrics dm) {
+        float floor85SpPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 8.5f, dm);
+        return Math.min(origPx, Math.max(origPx * 0.72f, floor85SpPx));
+    }
+
     /**
-     * Evaluates the 5 deterministic candidate states purely in memory without mutating any View.
+     * Classifies an indivisible single-word label eligible for State 3B survival recovery:
+     * strictly SCRIPT_LATIN_CYRILLIC_GREEK on ARCHETYPE_VERTICAL_ELASTIC_STRIP or ARCHETYPE_RIGID_1D_STRIP
+     * with zero natural break characters (' ', '/', '-') where State 2 2-line wrap is skipped to prevent mid-word split.
+     */
+    public static boolean isIndivisibleSingleWord(CharSequence cs, int scriptGroup, int archetype) {
+        if (cs == null || cs.length() == 0) return false;
+        if (scriptGroup != SCRIPT_LATIN_CYRILLIC_GREEK) return false;
+        if (archetype != ARCHETYPE_VERTICAL_ELASTIC_STRIP && archetype != ARCHETYPE_RIGID_1D_STRIP) {
+            return false;
+        }
+        if (hasNaturalBreakToken(cs) || allowsUnspacedLineBreak(cs)) {
+            return false;
+        }
+        String trimmed = cs.toString().trim();
+        if (trimmed.isEmpty()) return false;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (Character.isWhitespace(c) || c == '/' || c == '-' || c == '\u200b' || c == '\n') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Evaluates deterministic candidate states (1, 2, 3, 3B, 4, 5) purely in memory without mutating any View.
      */
     public static CandidatePlan evaluateCandidates(
             String str,
@@ -1027,6 +1074,46 @@ public final class TypographyNormalizer {
             Locale locale,
             Typeface tf,
             DisplayMetrics dm) {
+        return evaluateCandidates(
+                str,
+                origPx,
+                baseScaleX,
+                scriptGroup,
+                archetype,
+                allowMultiLine,
+                safeAvailW,
+                hardAvailH,
+                maxGrowthPx,
+                spacingMult,
+                spacingAdd,
+                includePad,
+                basePaint,
+                locale,
+                tf,
+                dm,
+                0,
+                0);
+    }
+
+    public static CandidatePlan evaluateCandidates(
+            String str,
+            float origPx,
+            float baseScaleX,
+            int scriptGroup,
+            int archetype,
+            boolean allowMultiLine,
+            int safeAvailW,
+            int hardAvailH,
+            int maxGrowthPx,
+            float spacingMult,
+            float spacingAdd,
+            boolean includePad,
+            Paint basePaint,
+            Locale locale,
+            Typeface tf,
+            DisplayMetrics dm,
+            int safePadL,
+            int safePadR) {
         int safeW = Math.max(1, safeAvailW);
         TextPaint tp = getScratchTextPaint(basePaint);
         preparePaintForScript(tp, str, locale, tf);
@@ -1101,6 +1188,73 @@ public final class TypographyNormalizer {
                 float scaledW = measureHarfBuzzWidth(str, tp);
                 if (scaledW <= safeW + 0.5f && (hardAvailH <= 0 || mhFloor <= hardAvailH + 2f)) {
                     return new CandidatePlan(3, floorPx, candScale, 1, 0, false, false);
+                }
+            }
+        }
+
+        // State 3B (Single-Word Survival Recovery): activates only for indivisible single words on 1D/vertical strips
+        // that still overflow horizontally at State 3 protectedFloor.
+        if (isIndivisibleSingleWord(str, scriptGroup, archetype)) {
+            float density = (dm != null && dm.density > 0f) ? dm.density : 2f;
+            int minSafeInsetPx = Math.max(1, Math.round(3f * density));
+            int totalSlotW = (safePadL > 0 || safePadR > 0)
+                    ? (safeW + Math.max(0, safePadL) + Math.max(0, safePadR))
+                    : (safeW + 2 * minSafeInsetPx);
+            int avail3BW = Math.max(1, totalSlotW - 2 * minSafeInsetPx);
+
+            // Step 3B-1: Preserve group uniform font size (protectedFloor) by tightening safeInset down to >= 3dp
+            // combined with gentle horizontal compression textScaleX >= 0.88f (strictly SCRIPT_LATIN_CYRILLIC_GREEK).
+            tp.setTextSize(floorPx);
+            tp.setTextScaleX(1.0f);
+            float wFloor3B = measureHarfBuzzWidth(str, tp);
+            float mhFloor3B = measureFontMetricsLineHeight(tp);
+            boolean vOk3B1 = (hardAvailH <= 0) || (mhFloor3B <= hardAvailH + 2f);
+            if (vOk3B1 && wFloor3B > 1f) {
+                if (wFloor3B <= avail3BW + 0.5f) {
+                    int maxOrigPad = Math.max(minSafeInsetPx, Math.min(safePadL, safePadR));
+                    int fitInset = clamp((totalSlotW - (int) Math.ceil(wFloor3B)) / 2, minSafeInsetPx, maxOrigPad);
+                    return new CandidatePlan(STATE_SINGLE_WORD_3B1, floorPx, 1.0f, 1, 0, false, false, fitInset);
+                }
+                float candScale3B1 = (scriptGroup == SCRIPT_LATIN_CYRILLIC_GREEK)
+                        ? Math.max(0.88f, Math.min(1.0f, avail3BW / wFloor3B))
+                        : 1.0f;
+                tp.setTextScaleX(candScale3B1);
+                float scaledW3B1 = measureHarfBuzzWidth(str, tp);
+                if (scaledW3B1 <= avail3BW + 0.5f) {
+                    return new CandidatePlan(STATE_SINGLE_WORD_3B1, floorPx, candScale3B1, 1, 0, false, false, minSafeInsetPx);
+                }
+            }
+
+            // Step 3B-2: Individual single-word survival downscale down to singleWordFloor = max(origPx * 0.72f, 8.5sp)
+            // with textScaleX >= 0.86f (strictly SCRIPT_LATIN_CYRILLIC_GREEK; locked 1.0f for complex/CJK) and minSafeInset >= 3dp.
+            float singleWordFloor = computeSingleWordSurvivalFloorPx(origPx, dm);
+            if (singleWordFloor <= floorPx + 0.05f) {
+                float curPx = floorPx;
+                for (int step = 0; step < 8; step++) {
+                    if (step == 7) {
+                        curPx = singleWordFloor;
+                    } else {
+                        float ratio = (step + 1) / 7f;
+                        curPx = floorPx - (floorPx - singleWordFloor) * ratio;
+                    }
+                    tp.setTextSize(curPx);
+                    tp.setTextScaleX(1.0f);
+                    float wCur = measureHarfBuzzWidth(str, tp);
+                    float mhCur = measureFontMetricsLineHeight(tp);
+                    boolean vOk3B2 = (hardAvailH <= 0) || (mhCur <= hardAvailH + 2f);
+                    if (vOk3B2 && wCur > 1f) {
+                        if (wCur <= avail3BW + 0.5f) {
+                            return new CandidatePlan(STATE_SINGLE_WORD_3B2, curPx, 1.0f, 1, 0, false, false, minSafeInsetPx);
+                        }
+                        float candScale3B2 = (scriptGroup == SCRIPT_LATIN_CYRILLIC_GREEK)
+                                ? Math.max(0.86f, Math.min(1.0f, avail3BW / wCur))
+                                : 1.0f;
+                        tp.setTextScaleX(candScale3B2);
+                        float scaledW3B2 = measureHarfBuzzWidth(str, tp);
+                        if (scaledW3B2 <= avail3BW + 0.5f) {
+                            return new CandidatePlan(STATE_SINGLE_WORD_3B2, curPx, candScale3B2, 1, 0, false, false, minSafeInsetPx);
+                        }
+                    }
                 }
             }
         }
@@ -1192,12 +1346,16 @@ public final class TypographyNormalizer {
                     m.tv.getPaint(),
                     locale,
                     tf,
-                    dm);
+                    dm,
+                    m.safePadL,
+                    m.safePadR);
             m.plan = plan;
             if (!plan.extremeOutlier && plan.targetPx < b.origTextSize - 0.1f) {
                 hasMildDownscale = true;
-                if (plan.targetPx < minMildPx) {
-                    minMildPx = plan.targetPx;
+                float memberProtectedFloor = computeProtectedFloorPx(b.origTextSize, dm);
+                float peerSyncCandidatePx = Math.max(memberProtectedFloor, plan.targetPx);
+                if (peerSyncCandidatePx < minMildPx) {
+                    minMildPx = peerSyncCandidatePx;
                 }
             }
             if (plan.neededDeltaH > maxDeltaH) {
@@ -1208,13 +1366,14 @@ public final class TypographyNormalizer {
             }
         }
 
-        float groupPx = hasMildDownscale ? minMildPx : refOrigPx;
+        float groupProtectedFloor = refOrigPx > 0f ? computeProtectedFloorPx(refOrigPx, dm) : 0f;
+        float groupPx = hasMildDownscale ? Math.max(groupProtectedFloor, minMildPx) : refOrigPx;
         return new GroupSolveResult(refOrigPx, groupPx, maxDeltaH, anyTwoLines);
     }
 
     /**
      * Applies a solved CandidatePlan and optional Phase 2 uniform font size to a TextView
-     * guarded by a 1-tick idempotency signature to prevent redundant layout passes.
+     * guarded by a 1-tick idempotency signature and the Anti-Overwrite Invariant.
      */
     public static boolean applySolvedPlanToTextView(
             TextView tv,
@@ -1231,12 +1390,18 @@ public final class TypographyNormalizer {
         BaselineSnapshot snap = captureBaseline(tv);
         if (snap == null) return false;
 
+        float finalApplyPx = (applyPx > 0f) ? Math.min(plan.targetPx, applyPx) : plan.targetPx;
+        int effPadL = (plan.resolvedSafeInsetPx > 0) ? plan.resolvedSafeInsetPx : padL;
+        int effPadR = (plan.resolvedSafeInsetPx > 0) ? plan.resolvedSafeInsetPx : padR;
+
         String sig = sigPrefix
-                + "|" + Math.round(applyPx * 4f)
+                + "|" + plan.state
+                + "|" + Math.round(finalApplyPx * 4f)
                 + "|" + Math.round(plan.targetScaleX * 100f)
                 + "|" + plan.targetLines
                 + "|" + (plan.useEllipsis ? 1 : 0)
-                + "|" + padL + "," + padR
+                + "|" + effPadL + "," + effPadR
+                + "|" + plan.resolvedSafeInsetPx
                 + "|" + targetMaxWidth
                 + "|" + tv.getWidth() + "x" + tv.getHeight();
         Object prevSig = tv.getTag(TAG_LAST_SOLVER_SIG);
@@ -1271,8 +1436,8 @@ public final class TypographyNormalizer {
             tv.setEllipsize(wantEl);
             mutated = true;
         }
-        if (tv.getPaddingLeft() != padL || tv.getPaddingRight() != padR) {
-            tv.setPadding(padL, tv.getPaddingTop(), padR, tv.getPaddingBottom());
+        if (tv.getPaddingLeft() != effPadL || tv.getPaddingRight() != effPadR) {
+            tv.setPadding(effPadL, tv.getPaddingTop(), effPadR, tv.getPaddingBottom());
             mutated = true;
         }
         if (enforceTopCenter) {
@@ -1317,8 +1482,8 @@ public final class TypographyNormalizer {
             tv.setTextScaleX(plan.targetScaleX);
             mutated = true;
         }
-        if (applyPx > 0f && Math.abs(tv.getTextSize() - applyPx) >= 0.4f) {
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, applyPx);
+        if (finalApplyPx > 0f && Math.abs(tv.getTextSize() - finalApplyPx) >= 0.4f) {
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, finalApplyPx);
             mutated = true;
         }
         return mutated;

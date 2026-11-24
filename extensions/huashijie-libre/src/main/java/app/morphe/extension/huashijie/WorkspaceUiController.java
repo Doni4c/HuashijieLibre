@@ -2823,7 +2823,9 @@ public final class WorkspaceUiController {
                             tv.getPaint(),
                             activeLoc,
                             activeTf,
-                            tv.getResources().getDisplayMetrics());
+                            tv.getResources().getDisplayMetrics(),
+                            tvSafePad,
+                            tvSafePad);
                     mutated |= TypographyNormalizer.applySolvedPlanToTextView(
                             tv,
                             plan,
@@ -5171,16 +5173,20 @@ public final class WorkspaceUiController {
         for (int i = 0; i < members.size(); i++) {
             TypographyNormalizer.GroupMember m = members.get(i);
             if (m.plan == null) continue;
-            float applyPx = m.plan.extremeOutlier ? m.plan.targetPx : res.groupPx;
-            int targetMaxW = (m.plan.useEllipsis || fillSlotWidth)
+            float applyPx = m.plan.extremeOutlier
+                    ? m.plan.targetPx
+                    : Math.min(m.plan.targetPx, res.groupPx);
+            int effPadL = m.plan.resolvedSafeInsetPx > 0 ? m.plan.resolvedSafeInsetPx : m.safePadL;
+            int effPadR = m.plan.resolvedSafeInsetPx > 0 ? m.plan.resolvedSafeInsetPx : m.safePadR;
+            int targetMaxW = (m.plan.useEllipsis || fillSlotWidth || m.plan.resolvedSafeInsetPx > 0)
                     ? (m.safeAvailW + m.safePadL + m.safePadR)
                     : 0;
             mutated |= TypographyNormalizer.applySolvedPlanToTextView(
                     m.tv,
                     m.plan,
                     applyPx,
-                    m.safePadL,
-                    m.safePadR,
+                    effPadL,
+                    effPadR,
                     enforceTopCenter,
                     fillSlotWidth,
                     targetMaxW,
@@ -6279,7 +6285,9 @@ public final class WorkspaceUiController {
             for (int i = 0; i < menuMembers.size(); i++) {
                 TypographyNormalizer.GroupMember m = menuMembers.get(i);
                 if (m.plan == null) continue;
-                float applyPx = m.plan.extremeOutlier ? m.plan.targetPx : gRes.groupPx;
+                float applyPx = m.plan.extremeOutlier
+                        ? m.plan.targetPx
+                        : Math.min(m.plan.targetPx, gRes.groupPx);
                 if (m.plan.targetLines >= 2) {
                     anyRowWrapped = true;
                     if (m.tv.getLayoutParams() != null

@@ -2538,7 +2538,9 @@ public final class TranslationEngine {
                     tv.getPaint(),
                     activeLocale,
                     activeTf,
-                    dm);
+                    dm,
+                    useSafeZone ? safeInset : 0,
+                    useSafeZone ? safeInset : 0);
 
             float targetPx = plan.targetPx;
             float targetScaleX = plan.targetScaleX;
@@ -2547,7 +2549,13 @@ public final class TranslationEngine {
             TextUtils.TruncateAt targetEllipsize = plan.useEllipsis ? TextUtils.TruncateAt.END : origEllipsize;
             int targetMaxWidth = origMaxWidth;
 
-            if (plan.state == 5) {
+            if (plan.resolvedSafeInsetPx > 0 && useSafeZone) {
+                desiredPadL = Math.max(origPadL, plan.resolvedSafeInsetPx);
+                desiredPadR = Math.max(Math.max(origPadR, rightObstaclePad), plan.resolvedSafeInsetPx);
+                if (!tvFillsContainer && owningSlot != null && !inRecycledList) {
+                    targetMaxWidth = safeTextAvailW + 2 * safeInset + compoundL + compoundR;
+                }
+            } else if (plan.state == 5) {
                 if (useSafeZone) {
                     if (tvFillsContainer) {
                         desiredPadL = Math.max(desiredPadL, safeInset);
