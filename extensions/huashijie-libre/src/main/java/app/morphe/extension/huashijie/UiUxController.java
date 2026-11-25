@@ -184,17 +184,23 @@ public final class UiUxController {
         if (sResolvedActivityClass == actClass) {
             return;
         }
-        sOutCloseField = LibreResourceResolver.findField(actClass, "o000O0o0", null, "OutCloseView");
-        sXuanQuField = LibreResourceResolver.findField(actClass, "Oooooo0", null, "XuanQuSettingView");
-        sMoveViewField = LibreResourceResolver.findField(actClass, "Ooooooo", null, "XuanquMoveView");
-        sLeftViewField = LibreResourceResolver.findField(actClass, "Oooo00O", null, "PaintLeftSettingView");
+        sOutCloseField = LibreResourceResolver.findRegisteredField(
+                actClass, "PaintActivity.outCloseViewField", null, null, "OutCloseView");
+        sXuanQuField = LibreResourceResolver.findRegisteredField(
+                actClass, "PaintActivity.xuanQuViewField", null, null, "XuanQuSettingView");
+        sMoveViewField = LibreResourceResolver.findRegisteredField(
+                actClass, "PaintActivity.xuanQuMoveViewField", null, null, "XuanquMoveView");
+        sLeftViewField = LibreResourceResolver.findRegisteredField(
+                actClass, "PaintActivity.leftSettingViewField", null, null, "PaintLeftSettingView");
         Class<?> paintViewClass = null;
         try {
             paintViewClass = Class.forName("net.huanci.paintlib.views.PaintView");
         } catch (Throwable ignored) {}
         sPaintViewField = paintViewClass != null
-                ? LibreResourceResolver.findField(actClass, "o0000O0", paintViewClass, null)
-                : LibreResourceResolver.findField(actClass, "o0000O0", null, "PaintView");
+                ? LibreResourceResolver.findRegisteredField(
+                        actClass, "PaintActivity.canvasViewField", null, paintViewClass, null)
+                : LibreResourceResolver.findRegisteredField(
+                        actClass, "PaintActivity.canvasViewField", null, null, "PaintView");
         sResolvedActivityClass = actClass;
     }
 
@@ -440,8 +446,12 @@ public final class UiUxController {
             Object paintParams = sPaintParamsField.get(pv);
             if (paintParams == null) return false;
             if (sParamsSparseField == null) {
-                sParamsSparseField = LibreResourceResolver.findField(
-                        paintParams.getClass(), "OooO00o", android.util.SparseArray.class, null);
+                sParamsSparseField = LibreResourceResolver.findRegisteredField(
+                        paintParams.getClass(),
+                        "PAINT_PARAMS.layerStateSparseField",
+                        null,
+                        android.util.SparseArray.class,
+                        null);
             }
             if (sParamsSparseField == null) return false;
             Object sparseObj = sParamsSparseField.get(paintParams);
@@ -449,7 +459,8 @@ public final class UiUxController {
             Object stateObj = ((android.util.SparseArray<?>) sparseObj).get(mineKey);
             if (stateObj == null) return false;
             if (sSelectionRectField == null) {
-                sSelectionRectField = LibreResourceResolver.findField(stateObj.getClass(), "OooOo0", Rect.class, null);
+                sSelectionRectField = LibreResourceResolver.findRegisteredField(
+                        stateObj.getClass(), "RenderAssist.selectionRectField", null, Rect.class, null);
             }
             if (sSelectionRectField == null) return false;
             Object rectObj = sSelectionRectField.get(stateObj);
@@ -508,10 +519,11 @@ public final class UiUxController {
                 && r.contains(tapX, tapY);
     }
 
-    private static View resolveActivityViewField(Activity activity, String exactName, String typeContains) {
+    private static View resolveActivityViewField(Activity activity, String registryKey, String typeContains) {
         if (activity == null) return null;
         try {
-            Field f = LibreResourceResolver.findField(activity.getClass(), exactName, null, typeContains);
+            Field f = LibreResourceResolver.findRegisteredField(
+                    activity.getClass(), registryKey, null, null, typeContains);
             if (f != null) {
                 Object v = f.get(activity);
                 if (v instanceof View) return (View) v;
@@ -543,7 +555,9 @@ public final class UiUxController {
             }
 
             // 2. XuanQuSettingView dismissal
-            View xq = xuanQuView != null ? xuanQuView : resolveActivityViewField(activity, "Oooooo0", "XuanQuSettingView");
+            View xq = xuanQuView != null
+                    ? xuanQuView
+                    : resolveActivityViewField(activity, "PaintActivity.xuanQuViewField", "XuanQuSettingView");
             if (xq != null) {
                 try {
                     Field v1Field = LibreResourceResolver.findField(xq.getClass(), "view1", null, null);
@@ -569,7 +583,9 @@ public final class UiUxController {
             }
 
             // 3. Hide XuanquMoveView
-            View mv = moveView != null ? moveView : resolveActivityViewField(activity, "Ooooooo", "XuanquMoveView");
+            View mv = moveView != null
+                    ? moveView
+                    : resolveActivityViewField(activity, "PaintActivity.xuanQuMoveViewField", "XuanquMoveView");
             if (mv != null) {
                 mv.setVisibility(View.GONE);
             }
@@ -585,7 +601,8 @@ public final class UiUxController {
                         int mineKey = mineKeyField.getInt(paintView);
                         int userId = 0;
                         try {
-                            Field userField = LibreResourceResolver.findField(activity.getClass(), "o0000oOO", null, null);
+                            Field userField = LibreResourceResolver.findRegisteredField(
+                                    activity.getClass(), "PaintActivity.userIdField", null, null, null);
                             if (userField != null) {
                                 userId = userField.getInt(activity);
                             }
@@ -626,8 +643,8 @@ public final class UiUxController {
             } catch (Throwable ignored) {}
 
             try {
-                Field leftField = LibreResourceResolver.findField(
-                        activity.getClass(), "Oooo00O", null, "PaintLeftSettingView");
+                Field leftField = LibreResourceResolver.findRegisteredField(
+                        activity.getClass(), "PaintActivity.leftSettingViewField", null, null, "PaintLeftSettingView");
                 if (leftField != null) {
                     Object leftView = leftField.get(activity);
                     if (leftView != null) {
@@ -650,8 +667,14 @@ public final class UiUxController {
                     }
                 }
                 if (brushEnum != null) {
-                    Method switchMethod = LibreResourceResolver.findMethod(
-                            activity.getClass(), "o0ooo0oo", void.class, false, enumClass, Runnable.class);
+                    Method switchMethod = LibreResourceResolver.findRegisteredMethod(
+                            activity.getClass(),
+                            "PaintActivity.switchLeftTool",
+                            null,
+                            void.class,
+                            false,
+                            enumClass,
+                            Runnable.class);
                     if (switchMethod != null) {
                         switchMethod.invoke(activity, brushEnum, null);
                     }
@@ -1900,12 +1923,18 @@ public final class UiUxController {
         try {
             if (!sRefRotFieldsResolved) {
                 Class<?> runClz = navRunnable.getClass();
-                sRefRunNavField = LibreResourceResolver.findField(runClz, "OooOO0O", null, null);
-                sRefRunGestureField = LibreResourceResolver.findField(runClz, "OooO0o", null, null);
-                sRefRunX0Field = LibreResourceResolver.findField(runClz, "OooO0oO", null, null);
-                sRefRunY0Field = LibreResourceResolver.findField(runClz, "OooO0oo", null, null);
-                sRefRunX1Field = LibreResourceResolver.findField(runClz, "OooO", null, null);
-                sRefRunY1Field = LibreResourceResolver.findField(runClz, "OooOO0", null, null);
+                sRefRunNavField = LibreResourceResolver.findRegisteredField(
+                        runClz, "NavigatorTouchRunnable.navViewField", null, null, "NavigatorView");
+                sRefRunGestureField = LibreResourceResolver.findRegisteredField(
+                        runClz, "NavigatorTouchRunnable.gestureTokenField", null, null, null);
+                sRefRunX0Field = LibreResourceResolver.findRegisteredField(
+                        runClz, "NavigatorTouchRunnable.x0Field", null, null, null);
+                sRefRunY0Field = LibreResourceResolver.findRegisteredField(
+                        runClz, "NavigatorTouchRunnable.y0Field", null, null, null);
+                sRefRunX1Field = LibreResourceResolver.findRegisteredField(
+                        runClz, "NavigatorTouchRunnable.x1Field", null, null, null);
+                sRefRunY1Field = LibreResourceResolver.findRegisteredField(
+                        runClz, "NavigatorTouchRunnable.y1Field", null, null, null);
                 sRefRotFieldsResolved = true;
             }
             if (sRefRunNavField == null || sRefRunX0Field == null || sRefRunY0Field == null

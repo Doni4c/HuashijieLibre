@@ -6,6 +6,8 @@ import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.formatInvokeStaticSingle
@@ -55,6 +57,12 @@ val canvasPopupPathRowPatch = bytecodePatch(
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
 
         val classes = allClasses()
+        val fileHelper = MultiVersionResolvers.resolveFileHelperClass(classes)
+        registerResolvedTarget("FileHelper.class", fileHelper.type.toJavaClassName())
+        registerResolvedTarget(
+            "FileHelper.getDraftDir",
+            MultiVersionResolvers.resolveFileHelperGetDraftDir(fileHelper).name,
+        )
         val bubbleType = MultiVersionResolvers.resolveBubblePopupClass(classes).type
         val paintClass = MultiVersionResolvers.resolvePaintActivityClass(classes)
         hookPopupPathRow(toMutableMethod(MultiVersionResolvers.resolvePaintPopup1Menu(paintClass, bubbleType)))

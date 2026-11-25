@@ -3,6 +3,10 @@ package app.morphe.patches.huashijie.tier6_extensions
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
+import app.morphe.patches.huashijie.core.MultiVersionResolvers
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.formatInvokeStaticSingle
 import app.morphe.patches.huashijie.core.libreSettingsPatch
@@ -36,6 +40,17 @@ val hsjFilePathDisplayPatch = bytecodePatch(
 
     execute {
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
+
+        val fileHelper = MultiVersionResolvers.resolveFileHelperClass(allClasses())
+        registerResolvedTarget("FileHelper.class", fileHelper.type.toJavaClassName())
+        registerResolvedTarget(
+            "FileHelper.getDraftDir",
+            MultiVersionResolvers.resolveFileHelperGetDraftDir(fileHelper).name,
+        )
+        registerResolvedTarget(
+            "FileHelper.getExportDraftsDir",
+            MultiVersionResolvers.resolveFileHelperGetExportDraftsDir(fileHelper).name,
+        )
 
         val storageMethod = draftStorageInitViewFingerprint.method
         val retIdx = storageMethod.implementation!!.instructions.indexOfLast {

@@ -3,6 +3,10 @@ package app.morphe.patches.huashijie.tier2_privacy
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
+import app.morphe.patches.huashijie.core.MultiVersionResolvers
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.findMoveResultObjectAfter
 import app.morphe.patches.huashijie.core.formatInvokeStaticSingle
@@ -38,6 +42,13 @@ val hideExitCloudSyncPatch = bytecodePatch(
 
     execute {
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
+
+        val prefUtil = MultiVersionResolvers.resolvePrefUtilClass(allClasses())
+        registerResolvedTarget("PrefUtil.class", prefUtil.type.toJavaClassName())
+        registerResolvedTarget(
+            "PrefUtil.putBoolean",
+            MultiVersionResolvers.resolvePrefUtilPutBoolean(prefUtil).name,
+        )
 
         val method = paintOnBackPressedFingerprint.method
         val instructions = method.implementation!!.instructions

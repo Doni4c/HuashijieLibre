@@ -3,6 +3,9 @@ package app.morphe.patches.huashijie.tier6_extensions
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
+import app.morphe.patches.huashijie.core.MultiVersionResolvers
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
@@ -34,6 +37,45 @@ val lassoTapOutsideExitPatch = bytecodePatch(
 
     execute {
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
+
+        val classes = allClasses()
+        val paintClass = MultiVersionResolvers.resolvePaintActivityClass(classes)
+        registerResolvedTarget(
+            "PaintActivity.outCloseViewField",
+            MultiVersionResolvers.resolvePaintOutCloseViewField(paintClass).name,
+        )
+        registerResolvedTarget(
+            "PaintActivity.xuanQuViewField",
+            MultiVersionResolvers.resolvePaintXuanQuViewField(paintClass).name,
+        )
+        registerResolvedTarget(
+            "PaintActivity.xuanQuMoveViewField",
+            MultiVersionResolvers.resolvePaintXuanQuMoveViewField(paintClass).name,
+        )
+        registerResolvedTarget(
+            "PaintActivity.leftSettingViewField",
+            MultiVersionResolvers.resolvePaintLeftSettingViewField(paintClass).name,
+        )
+        registerResolvedTarget(
+            "PaintActivity.canvasViewField",
+            MultiVersionResolvers.resolvePaintCanvasViewField(paintClass).name,
+        )
+        registerResolvedTarget(
+            "PaintActivity.userIdField",
+            MultiVersionResolvers.resolvePaintUserIdField(paintClass).name,
+        )
+        registerResolvedTarget(
+            "PaintActivity.switchLeftTool",
+            MultiVersionResolvers.resolvePaintSwitchLeftToolMethod(paintClass).name,
+        )
+        registerResolvedTarget(
+            "PAINT_PARAMS.layerStateSparseField",
+            MultiVersionResolvers.resolvePaintParamsLayerStateSparseField(classes).name,
+        )
+        registerResolvedTarget(
+            "RenderAssist.selectionRectField",
+            MultiVersionResolvers.resolveLayerStateSelectionRectField(classes).name,
+        )
 
         val method = paintDispatchTouchFingerprint.method
         val thisReg = method.thisRegisterIndex()

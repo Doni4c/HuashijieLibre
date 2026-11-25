@@ -1024,9 +1024,9 @@ public final class WorkspaceUiController {
 
     public static String resolveActiveDraftDirectory(Context ctx) {
         try {
-            Class<?> clz = Class.forName("net.huanci.hsjpro.utils.o00O000o");
-            Method m = LibreResourceResolver.findMethod(
-                    clz, "Oooo0oo", String.class, true, boolean.class, String.class);
+            Class<?> clz = LibreResourceResolver.loadRegisteredClass("FileHelper.class", null);
+            Method m = LibreResourceResolver.findRegisteredMethod(
+                    clz, "FileHelper.getDraftDir", null, String.class, true, boolean.class, String.class);
             if (m != null) {
                 Object res = m.invoke(null, true, "");
                 if (res instanceof String && !((String) res).trim().isEmpty()) {
@@ -1054,8 +1054,9 @@ public final class WorkspaceUiController {
 
     public static String resolveActiveExportDraftDirectory(Context ctx) {
         try {
-            Class<?> clz = Class.forName("net.huanci.hsjpro.utils.o00O000o");
-            Method m = LibreResourceResolver.findMethod(clz, "Oooo00o", String.class, true);
+            Class<?> clz = LibreResourceResolver.loadRegisteredClass("FileHelper.class", null);
+            Method m = LibreResourceResolver.findRegisteredMethod(
+                    clz, "FileHelper.getExportDraftsDir", null, String.class, true);
             if (m != null) {
                 Object res = m.invoke(null);
                 if (res instanceof String && !((String) res).trim().isEmpty()) {
@@ -1482,9 +1483,12 @@ public final class WorkspaceUiController {
 
             if (hideCloud) {
                 try {
-                    Class<?> utilClass = Class.forName("net.huanci.hsjpro.utils.oo0oO0");
-                    java.lang.reflect.Method setMethod = utilClass.getMethod("o000", String.class, boolean.class);
-                    setMethod.invoke(null, "quit_draft_cloud_sync_hint", true);
+                    Class<?> utilClass = LibreResourceResolver.loadRegisteredClass("PrefUtil.class", null);
+                    Method setMethod = LibreResourceResolver.findRegisteredMethod(
+                            utilClass, "PrefUtil.putBoolean", null, void.class, true, String.class, boolean.class);
+                    if (setMethod != null) {
+                        setMethod.invoke(null, "quit_draft_cloud_sync_hint", true);
+                    }
                 } catch (Throwable ignored) {}
             }
         } catch (Throwable t) {
