@@ -17,6 +17,37 @@ public final class StartupLifecycleController {
 
     private StartupLifecycleController() {}
 
+    private static void initSingletonManager(
+            String classKey,
+            String getterKey,
+            String initMethodKey,
+            boolean passFalseArg
+    ) {
+        try {
+            Class<?> mgrClz = LibreResourceResolver.loadRegisteredClass(classKey, null);
+            if (mgrClz == null) {
+                return;
+            }
+            Object mgr = LibreResourceResolver.getRegisteredStaticSingleton(mgrClz, getterKey, null);
+            if (mgr == null) {
+                return;
+            }
+            if (passFalseArg) {
+                Method initMethod = LibreResourceResolver.findRegisteredMethod(
+                        mgrClz, initMethodKey, null, void.class, false, boolean.class);
+                if (initMethod != null) {
+                    initMethod.invoke(mgr, false);
+                }
+            } else {
+                Method initMethod = LibreResourceResolver.findRegisteredMethod(
+                        mgrClz, initMethodKey, null, void.class, false);
+                if (initMethod != null) {
+                    initMethod.invoke(mgr);
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
     /**
      * Intercepts FlashActivity.onCreate to bypass splash ad countdown
      * and transition immediately to MainActivity.
@@ -47,55 +78,32 @@ public final class StartupLifecycleController {
                 }
             }
 
-            // Synchronize watchdog flag DrawApplication.OooO0o = true before starting MainActivity
+            // Synchronize DrawApplication watchdog flag before starting MainActivity
             try {
-                Class<?> appClz = Class.forName("net.huanci.hsjpro.DrawApplication");
-                Object app = flashActivity.getApplication();
-                if (app == null || !appClz.isInstance(app)) {
-                    app = LibreResourceResolver.getStaticSingleton(appClz, "OooO0oO");
-                }
-                Field f = LibreResourceResolver.findField(appClz, "OooO0o", boolean.class, null);
-                if (f != null) {
-                    if (Modifier.isStatic(f.getModifiers())) {
-                        f.setBoolean(null, true);
-                    } else if (app != null) {
-                        f.setBoolean(app, true);
+                Class<?> appClz = LibreResourceResolver.loadRegisteredClass(
+                        "DrawApplication.class", "net.huanci.hsjpro.DrawApplication");
+                if (appClz != null) {
+                    Object app = flashActivity.getApplication();
+                    if (app == null || !appClz.isInstance(app)) {
+                        app = LibreResourceResolver.getRegisteredStaticSingleton(
+                                appClz, "DrawApplication.getInstance", null);
+                    }
+                    Field f = LibreResourceResolver.findRegisteredField(
+                            appClz, "DrawApplication.watchdogField", null, boolean.class, null);
+                    if (f != null) {
+                        if (Modifier.isStatic(f.getModifiers())) {
+                            f.setBoolean(null, true);
+                        } else if (app != null) {
+                            f.setBoolean(app, true);
+                        }
                     }
                 }
             } catch (Throwable ignored) {}
 
             // Initialize essential drawing managers usually started during splash
-            try {
-                Class<?> mgrClz = Class.forName("net.huanci.paintlib.manager.OooOOOO");
-                Object mgr = LibreResourceResolver.getStaticSingleton(mgrClz, "OoooOOO");
-                if (mgr != null) {
-                    Method initMethod = LibreResourceResolver.findMethod(
-                            mgrClz, "OooooOo", void.class, false, boolean.class);
-                    if (initMethod != null) {
-                        initMethod.invoke(mgr, false);
-                    }
-                }
-            } catch (Throwable ignored) {}
-            try {
-                Class<?> pClz = Class.forName("net.huanci.paintlib.manager.o000oOoO");
-                Object pm = LibreResourceResolver.getStaticSingleton(pClz, "OooOoO");
-                if (pm != null) {
-                    Method initPm = LibreResourceResolver.findMethod(pClz, "Oooo00o", void.class, false);
-                    if (initPm != null) {
-                        initPm.invoke(pm);
-                    }
-                }
-            } catch (Throwable ignored) {}
-            try {
-                Class<?> uClz = Class.forName("net.huanci.hsjpro.utils.o00OO00O");
-                Object um = LibreResourceResolver.getStaticSingleton(uClz, "OooO0oO");
-                if (um != null) {
-                    Method initUm = LibreResourceResolver.findMethod(uClz, "OooOO0", void.class, false);
-                    if (initUm != null) {
-                        initUm.invoke(um);
-                    }
-                }
-            } catch (Throwable ignored) {}
+            initSingletonManager("BrushPkgManager.class", "BrushPkgManager.getInstance", "BrushPkgManager.init", true);
+            initSingletonManager("ColorSpaceManager.class", "ColorSpaceManager.getInstance", "ColorSpaceManager.init", false);
+            initSingletonManager("HistoryBrushManager.class", "HistoryBrushManager.getInstance", "HistoryBrushManager.init", false);
 
             if (!flashActivity.isTaskRoot()) {
                 flashActivity.finish();

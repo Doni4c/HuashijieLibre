@@ -30,9 +30,13 @@ public final class OfflineAccountController {
                 return;
             }
 
-            Class<?> gdClz = Class.forName("o00OO0o0.o0OOO0o");
+            Class<?> gdClz = LibreResourceResolver.loadRegisteredClass("GlobalData.class", null);
+            if (gdClz == null) {
+                return;
+            }
             Class<?> hhClz = Class.forName("net.huanci.hsjpro.model.result.user.HHUser");
-            Field uField = LibreResourceResolver.findField(gdClz, "OooO0oO", hhClz, null);
+            Field uField = LibreResourceResolver.findRegisteredField(
+                    gdClz, "GlobalData.userField", null, hhClz, null);
             if (uField == null) {
                 return;
             }

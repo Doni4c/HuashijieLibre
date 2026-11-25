@@ -86,18 +86,24 @@ public final class LocalBrushController {
             return (List<?>) list;
         }
         try {
-            Class<?> mgrClz = Class.forName("net.huanci.paintlib.manager.OooOOOO");
-            Object mgr = LibreResourceResolver.getStaticSingleton(mgrClz, "OoooOOO");
+            Class<?> mgrClz = LibreResourceResolver.loadRegisteredClass("BrushPkgManager.class", null);
+            Object mgr = LibreResourceResolver.getRegisteredStaticSingleton(
+                    mgrClz, "BrushPkgManager.getInstance", null);
             if (mgr != null) {
-                Method reload = LibreResourceResolver.findMethod(mgrClz, "OoooooO", void.class, false, boolean.class);
+                Method reload = LibreResourceResolver.findRegisteredMethod(
+                        mgrClz, "BrushPkgManager.reload", null, void.class, false, boolean.class);
                 if (reload != null) {
                     reload.invoke(mgr, false);
                 }
-                Field f = LibreResourceResolver.findField(mgrClz, "OooO00o", List.class, null);
+                Field f = LibreResourceResolver.findRegisteredField(
+                        mgrClz, "BrushPkgManager.listField", null, List.class, null);
                 if (f != null) {
-                    List<?> res = (List<?>) f.get(mgr);
-                    if (res != null && !res.isEmpty()) {
-                        return res;
+                    Object raw = f.get(mgr);
+                    if (raw instanceof List<?>) {
+                        List<?> res = (List<?>) raw;
+                        if (!res.isEmpty()) {
+                            return res;
+                        }
                     }
                 }
             }

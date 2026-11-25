@@ -9,13 +9,16 @@ import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.resolveSingleClass
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
+import com.android.tools.smali.dexlib2.iface.ClassDef
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
@@ -80,6 +83,15 @@ internal fun BytecodePatchContext.injectSystemShareGuard(method: MutableMethod) 
     }
 }
 
+internal fun BytecodePatchContext.registerRxFileToolTargets(classes: List<ClassDef> = allClasses()) {
+    val rxFileTool = MultiVersionResolvers.resolveRxFileToolClass(classes)
+    registerResolvedTarget("RxFileTool.class", rxFileTool.type.toJavaClassName())
+    registerResolvedTarget(
+        "RxFileTool.getUriForFile",
+        MultiVersionResolvers.resolveRxFileToolGetUriForFile(rxFileTool).name,
+    )
+}
+
 @Suppress("unused")
 val nativeAndroidShareSheetPatch = bytecodePatch(
     name = "Native Android Share Sheet",
@@ -94,6 +106,7 @@ val nativeAndroidShareSheetPatch = bytecodePatch(
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
 
         val classes = allClasses()
+        registerRxFileToolTargets(classes)
         val paintClass = MultiVersionResolvers.resolvePaintActivityClass(classes)
         val shareMethod = toMutableMethod(MultiVersionResolvers.resolveActivityShareCallback(paintClass))
         injectSystemShareGuard(shareMethod)

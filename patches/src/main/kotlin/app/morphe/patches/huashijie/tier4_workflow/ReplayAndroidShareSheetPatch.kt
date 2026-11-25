@@ -26,6 +26,7 @@ val replayAndroidShareSheetPatch = bytecodePatch(
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
 
         val classes = allClasses()
+        registerRxFileToolTargets(classes)
         val replayClass = classes.resolveSingleClass("ReplayActivity") {
             it.type == "Lnet/huanci/hsjpro/activities/ReplayActivity;"
         }

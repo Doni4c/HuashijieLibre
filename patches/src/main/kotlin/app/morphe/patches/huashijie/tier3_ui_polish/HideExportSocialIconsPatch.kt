@@ -7,6 +7,7 @@ import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toFingerprint
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
@@ -294,6 +295,20 @@ val hideExportSocialIconsPatch = bytecodePatch(
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
 
         val classes = allClasses()
+        val epv = MultiVersionResolvers.resolveExportPictureViewClass(classes)
+        registerResolvedTarget(
+            "ExportPictureView.socialRecyclerField",
+            MultiVersionResolvers.resolveExportPictureSocialRecyclerField(epv).name,
+        )
+        registerResolvedTarget(
+            "ExportPictureView.socialHeaderField",
+            MultiVersionResolvers.resolveExportPictureSocialHeaderField(epv).name,
+        )
+        registerResolvedTarget(
+            "ExportPictureView.socialDividerField",
+            MultiVersionResolvers.resolveExportPictureSocialDividerField(epv).name,
+        )
+
         val epCreateMethod = exportPictureCreateViewFingerprint.method
         val epCreateRetIdx = epCreateMethod.implementation!!.instructions.indexOfLast {
             it.opcode == Opcode.RETURN_OBJECT

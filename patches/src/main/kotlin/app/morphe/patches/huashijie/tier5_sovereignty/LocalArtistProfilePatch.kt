@@ -3,6 +3,10 @@ package app.morphe.patches.huashijie.tier5_sovereignty
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
+import app.morphe.patches.huashijie.core.MultiVersionResolvers
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
@@ -43,6 +47,14 @@ val localArtistProfilePatch = bytecodePatch(
 
     execute {
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
+
+        val classes = allClasses()
+        val globalData = MultiVersionResolvers.resolveGlobalDataClass(classes)
+        registerResolvedTarget("GlobalData.class", globalData.type.toJavaClassName())
+        registerResolvedTarget(
+            "GlobalData.userField",
+            MultiVersionResolvers.resolveGlobalDataUserField(globalData).name,
+        )
 
         val flashMethod = flashOnCreateFingerprint.method
         val flashRetIdx = flashMethod.implementation!!.instructions.indexOfLast {

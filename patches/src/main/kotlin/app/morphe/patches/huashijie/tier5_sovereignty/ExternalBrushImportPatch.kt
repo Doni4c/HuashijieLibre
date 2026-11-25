@@ -3,11 +3,13 @@ package app.morphe.patches.huashijie.tier5_sovereignty
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.ensureBrushPkgManagerGetListHooked
 import app.morphe.patches.huashijie.core.formatInvokeStaticSingle
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
+import app.morphe.patches.huashijie.core.registerBrushPackageListTargets
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.thisRegisterIndex
 import com.android.tools.smali.dexlib2.Opcode
@@ -51,6 +53,7 @@ val externalBrushImportPatch = bytecodePatch(
             ),
         )
 
+        registerBrushPackageListTargets(allClasses())
         ensureBrushPkgManagerGetListHooked()
     }
 }

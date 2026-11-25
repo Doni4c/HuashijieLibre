@@ -10,9 +10,12 @@ import app.morphe.patcher.util.addInstructionsAtControlFlowLabel
 import app.morphe.patcher.util.findFreeRegister
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.ClassDef
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
@@ -414,6 +417,23 @@ internal fun BytecodePatchContext.registerToggleBeforeSettingsPanel(toggleKey: S
         const-string v$scratchReg, "$toggleKey"
         $invokeRegisterLine
         """.trimIndent(),
+    )
+}
+
+internal fun BytecodePatchContext.registerBrushPackageListTargets(classes: List<ClassDef> = allClasses()) {
+    val brushMgr = MultiVersionResolvers.resolveBrushPkgManagerClass(classes)
+    registerResolvedTarget("BrushPkgManager.class", brushMgr.type.toJavaClassName())
+    registerResolvedTarget(
+        "BrushPkgManager.getInstance",
+        MultiVersionResolvers.resolveBrushPkgManagerGetInstance(brushMgr).name,
+    )
+    registerResolvedTarget(
+        "BrushPkgManager.reload",
+        MultiVersionResolvers.resolveBrushPkgManagerReload(brushMgr).name,
+    )
+    registerResolvedTarget(
+        "BrushPkgManager.listField",
+        MultiVersionResolvers.resolveBrushPkgManagerListField(brushMgr).name,
     )
 }
 

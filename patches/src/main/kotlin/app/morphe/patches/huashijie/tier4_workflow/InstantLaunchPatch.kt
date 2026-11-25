@@ -8,10 +8,13 @@ import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.huashijie.core.HUASHIJIE_COMPATIBILITY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
+import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.ensureBrushPkgManagerGetListHooked
 import app.morphe.patches.huashijie.core.formatInvokeStaticSingle
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
+import app.morphe.patches.huashijie.core.registerBrushPackageListTargets
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
@@ -46,6 +49,46 @@ val instantLaunchPatch = bytecodePatch(
         registerToggleBeforeSettingsPanel(TOGGLE_KEY)
 
         val classes = allClasses()
+        val drawApp = MultiVersionResolvers.resolveDrawApplicationClass(classes)
+        registerResolvedTarget("DrawApplication.class", drawApp.type.toJavaClassName())
+        registerResolvedTarget(
+            "DrawApplication.getInstance",
+            MultiVersionResolvers.resolveDrawApplicationGetInstance(drawApp).name,
+        )
+        registerResolvedTarget(
+            "DrawApplication.watchdogField",
+            MultiVersionResolvers.resolveDrawApplicationWatchdogField(classes).name,
+        )
+
+        val brushMgr = MultiVersionResolvers.resolveBrushPkgManagerClass(classes)
+        registerResolvedTarget(
+            "BrushPkgManager.init",
+            MultiVersionResolvers.resolveBrushPkgManagerInit(brushMgr).name,
+        )
+        registerBrushPackageListTargets(classes)
+
+        val colorMgr = MultiVersionResolvers.resolveColorSpaceManagerClass(classes)
+        registerResolvedTarget("ColorSpaceManager.class", colorMgr.type.toJavaClassName())
+        registerResolvedTarget(
+            "ColorSpaceManager.getInstance",
+            MultiVersionResolvers.resolveColorSpaceManagerGetInstance(colorMgr).name,
+        )
+        registerResolvedTarget(
+            "ColorSpaceManager.init",
+            MultiVersionResolvers.resolveColorSpaceManagerInit(colorMgr).name,
+        )
+
+        val histMgr = MultiVersionResolvers.resolveHistoryBrushManagerClass(classes)
+        registerResolvedTarget("HistoryBrushManager.class", histMgr.type.toJavaClassName())
+        registerResolvedTarget(
+            "HistoryBrushManager.getInstance",
+            MultiVersionResolvers.resolveHistoryBrushManagerGetInstance(histMgr).name,
+        )
+        registerResolvedTarget(
+            "HistoryBrushManager.init",
+            MultiVersionResolvers.resolveHistoryBrushManagerInit(histMgr).name,
+        )
+
         val flashClass = MultiVersionResolvers.resolveFlashActivityClass(classes)
         val splashJumpMethod = MultiVersionResolvers.resolveFlashSplashJump(flashClass)
 

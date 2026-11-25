@@ -55,6 +55,7 @@ public final class GlobalCompatibilityController {
 
     private static Uri resolveShareUri(Context ctx, File targetFile) {
         if (ctx == null || targetFile == null) return null;
+        LibreResourceResolver.init(ctx);
         try {
             if (!sFileProviderResolved) {
                 try {
@@ -77,10 +78,12 @@ public final class GlobalCompatibilityController {
         try {
             if (!sHostUriHelperResolved) {
                 try {
-                    Class<?> helperClz = Class.forName("o000OoOO.Oooo000");
-                    sHostUriHelperMethod = LibreResourceResolver.findMethod(
-                            helperClz, "Oooo00O", Uri.class, true,
-                            Context.class, File.class);
+                    Class<?> helperClz = LibreResourceResolver.loadRegisteredClass("RxFileTool.class", null);
+                    if (helperClz != null) {
+                        sHostUriHelperMethod = LibreResourceResolver.findRegisteredMethod(
+                                helperClz, "RxFileTool.getUriForFile", null, Uri.class, true,
+                                Context.class, File.class);
+                    }
                 } catch (Throwable ignored) {}
                 sHostUriHelperResolved = true;
             }
@@ -365,9 +368,9 @@ public final class GlobalCompatibilityController {
                 }
 
                 if (exportPictureView != null) {
-                    hideExportField(exportPictureView, "OooOOO");
-                    hideExportField(exportPictureView, "OooOOo0");
-                    hideExportField(exportPictureView, "OooOOoo");
+                    hideExportField(exportPictureView, "ExportPictureView.socialRecyclerField");
+                    hideExportField(exportPictureView, "ExportPictureView.socialHeaderField");
+                    hideExportField(exportPictureView, "ExportPictureView.socialDividerField");
                 }
             }
 
@@ -461,47 +464,51 @@ public final class GlobalCompatibilityController {
         if (epv == null) return;
         try {
             Class<?> epvClz = epv.getClass();
-            Object cb = readObjField(epvClz, epv, "OooOOOo");
+            Object cb = readObjField(epvClz, epv, "ExportPictureView.callbackField");
             if (cb == null) return;
 
-            int format = readIntField(epvClz, epv, "OooOOOO", 0);
-            Object wmView = readObjField(epvClz, epv, "OooOOo");
+            int format = readIntField(epvClz, epv, "ExportPictureView.formatField", 0);
+            Object wmView = readObjField(epvClz, epv, "ExportPictureView.watermarkSwitchField");
             boolean wmChecked = (wmView instanceof CompoundButton) && ((CompoundButton) wmView).isChecked();
-            boolean flag20 = readBoolField(epvClz, epv, "OooOo0", false);
-            Object sizeCb = readObjField(epvClz, epv, "OooOoO0");
-            Object sizeType = readObjField(epvClz, epv, "OooOo0O");
-            int w = readIntField(epvClz, epv, "OooOo0o", 0);
-            int h = readIntField(epvClz, epv, "OooOo", 0);
+            boolean flag20 = readBoolField(epvClz, epv, "ExportPictureView.shareProgressField", false);
+            Object sizeCb = readObjField(epvClz, epv, "ExportPictureView.sizeCallbackField");
+            Object sizeType = readObjField(epvClz, epv, "ExportPictureView.sizeTypeField");
+            int w = readIntField(epvClz, epv, "ExportPictureView.customWidthField", 0);
+            int h = readIntField(epvClz, epv, "ExportPictureView.customHeightField", 0);
 
             Class<?> platformClz = Class.forName("cn.sharesdk.framework.Platform");
-            Class<?> sizeCbClz = Class.forName("net.huanci.hsjpro.views.ExportPictureView$OooO0o$OooO00o");
+            Class<?> sizeCbClz = LibreResourceResolver.loadRegisteredClass(
+                    "ExportPictureView.sizeCallbackClass", null);
             Class<?> sizeTypeClz = Class.forName("net.huanci.paintlib.enums.ExportPictureSizeType");
-            Method exportMethod = LibreResourceResolver.findMethod(
-                    cb.getClass(),
-                    "OooOoo0",
-                    void.class,
-                    false,
-                    int.class,
-                    int.class,
-                    platformClz,
-                    boolean.class,
-                    boolean.class,
-                    sizeCbClz,
-                    sizeTypeClz,
-                    int.class,
-                    int.class);
-            if (exportMethod != null) {
-                markPendingButtonSystemShare(resolveExportHostActivity(epv));
-                Object platform = null;
-                try {
-                    exportMethod.invoke(cb, 2, format, platform, wmChecked, flag20, sizeCb, sizeType, w, h);
-                } catch (Throwable primaryErr) {
+            if (sizeCbClz != null) {
+                Method exportMethod = LibreResourceResolver.findRegisteredMethod(
+                        cb.getClass(),
+                        "ExportPictureView.callbackInvoke",
+                        null,
+                        void.class,
+                        false,
+                        int.class,
+                        int.class,
+                        platformClz,
+                        boolean.class,
+                        boolean.class,
+                        sizeCbClz,
+                        sizeTypeClz,
+                        int.class,
+                        int.class);
+                if (exportMethod != null) {
+                    markPendingButtonSystemShare(resolveExportHostActivity(epv));
+                    Object platform = null;
                     try {
-                        markPendingButtonSystemShare(resolveExportHostActivity(epv));
-                        Class<?> wechatClz = Class.forName("cn.sharesdk.wechat.friends.Wechat");
-                        platform = wechatClz.getDeclaredConstructor().newInstance();
                         exportMethod.invoke(cb, 2, format, platform, wmChecked, flag20, sizeCb, sizeType, w, h);
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable primaryErr) {
+                        try {
+                            markPendingButtonSystemShare(resolveExportHostActivity(epv));
+                            Class<?> wechatClz = Class.forName("cn.sharesdk.wechat.friends.Wechat");
+                            platform = wechatClz.getDeclaredConstructor().newInstance();
+                            exportMethod.invoke(cb, 2, format, platform, wmChecked, flag20, sizeCb, sizeType, w, h);
+                        } catch (Throwable ignored) {}
+                    }
                 }
             }
 
@@ -543,36 +550,37 @@ public final class GlobalCompatibilityController {
         } catch (Throwable ignored) {}
     }
 
-    private static Object readObjField(Class<?> cls, Object host, String name) {
+    private static Object readObjField(Class<?> cls, Object host, String registryKey) {
         try {
-            Field f = LibreResourceResolver.findField(cls, name, null, null);
+            Field f = LibreResourceResolver.findRegisteredField(cls, registryKey, null, null, null);
             return f != null ? f.get(host) : null;
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static int readIntField(Class<?> cls, Object host, String name, int fallback) {
+    private static int readIntField(Class<?> cls, Object host, String registryKey, int fallback) {
         try {
-            Field f = LibreResourceResolver.findField(cls, name, null, null);
+            Field f = LibreResourceResolver.findRegisteredField(cls, registryKey, null, null, null);
             return f != null ? f.getInt(host) : fallback;
         } catch (Throwable ignored) {
             return fallback;
         }
     }
 
-    private static boolean readBoolField(Class<?> cls, Object host, String name, boolean fallback) {
+    private static boolean readBoolField(Class<?> cls, Object host, String registryKey, boolean fallback) {
         try {
-            Field f = LibreResourceResolver.findField(cls, name, null, null);
+            Field f = LibreResourceResolver.findRegisteredField(cls, registryKey, null, null, null);
             return f != null ? f.getBoolean(host) : fallback;
         } catch (Throwable ignored) {
             return fallback;
         }
     }
 
-    private static void hideExportField(Object host, String fieldName) {
+    private static void hideExportField(Object host, String registryKey) {
         try {
-            Field f = LibreResourceResolver.findField(host.getClass(), fieldName, null, null);
+            Field f = LibreResourceResolver.findRegisteredField(
+                    host.getClass(), registryKey, null, null, null);
             if (f != null) {
                 Object val = f.get(host);
                 if (val instanceof View) {
