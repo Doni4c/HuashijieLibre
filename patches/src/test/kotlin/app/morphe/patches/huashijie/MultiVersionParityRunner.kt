@@ -1,9 +1,16 @@
 package app.morphe.patches.huashijie
 
+import app.morphe.patches.huashijie.core.ARM64_LIB_ENTRY
+import app.morphe.patches.huashijie.core.ARMV7_LIB_ENTRY
 import app.morphe.patches.huashijie.core.MultiVersionResolvers
+import app.morphe.patches.huashijie.core.patchNativeLibraryFile
+import app.morphe.patches.huashijie.core.resolveArm64Targets
+import app.morphe.patches.huashijie.core.resolveArmv7Targets
 import com.android.tools.smali.dexlib2.DexFileFactory
 import com.android.tools.smali.dexlib2.Opcodes
 import java.io.File
+import java.nio.file.Files
+import java.util.zip.ZipFile
 
 private var parityChecks = 0
 
@@ -463,7 +470,78 @@ fun main() {
     val shareBitmapWrapper = MultiVersionResolvers.resolveShareBitmapWrapperClass(allClasses)
     assertParity("ShareBitmapWrapper.class", shareBitmapWrapper.type, "Lo00Oo0Oo/o00O00;")
 
+    verifyNativePaintLibParity(apk)
+
     println("ALL $parityChecks STRUCTURAL TARGET PARITY CHECKS PASSED (1 TO 1 EXACT MATCH ON BASE.APK)")
+}
+
+private fun verifyNativePaintLibParity(apk: File) {
+    fun formatHex(offset: Long): String = "0x${offset.toString(16).uppercase()}"
+
+    ZipFile(apk).use { zip ->
+        val arm64Bytes = zip.getInputStream(zip.getEntry(ARM64_LIB_ENTRY)).use { it.readBytes() }
+        val armv7Bytes = zip.getInputStream(zip.getEntry(ARMV7_LIB_ENTRY)).use { it.readBytes() }
+
+        val arm64 = resolveArm64Targets(arm64Bytes)
+        assertParity("arm64.dder0.matchCount", arm64.dder0Prologue.matchCount.toString(), "1")
+        assertParity("arm64.dder0.offset", formatHex(arm64.dder0Prologue.fileOffset), "0x1021C")
+        assertParity("arm64.dumbii.matchCount", arm64.dumbiiCheck.matchCount.toString(), "1")
+        assertParity("arm64.dumbii.offset", formatHex(arm64.dumbiiCheck.fileOffset), "0x10808")
+        assertParity("arm64.JNI_OnLoad.matchCount", arm64.jniOnLoadCheck.matchCount.toString(), "1")
+        assertParity("arm64.JNI_OnLoad.offset", formatHex(arm64.jniOnLoadCheck.fileOffset), "0x131FC")
+        assertParity(
+            "arm64.BL_dder0.offset",
+            arm64.resolvedDder0FromBlOffset?.let(::formatHex) ?: "null",
+            "0x1021C",
+        )
+
+        val armv7 = resolveArmv7Targets(armv7Bytes)
+        assertParity("armv7.dder0.matchCount", armv7.dder0Prologue.matchCount.toString(), "1")
+        assertParity("armv7.dder0.offset", formatHex(armv7.dder0Prologue.fileOffset), "0x9490")
+        assertParity("armv7.JNI_OnLoad.matchCount", armv7.jniOnLoadCheck.matchCount.toString(), "1")
+        assertParity("armv7.JNI_OnLoad.offset", formatHex(armv7.jniOnLoadCheck.fileOffset), "0xB424")
+        assertParity(
+            "armv7.BLX_dder0.offset",
+            armv7.resolvedDder0FromBlOffset?.let(::formatHex) ?: "null",
+            "0x9490",
+        )
+
+        val tempDir = Files.createTempDirectory("hsj_native_parity_").toFile()
+        try {
+            val arm64Copy = File(tempDir, "libPaintLib_arm64.so").apply { writeBytes(arm64Bytes) }
+            val armv7Copy = File(tempDir, "libPaintLib_armv7.so").apply { writeBytes(armv7Bytes) }
+
+            patchNativeLibraryFile(arm64Copy, patchArm64 = true)
+            patchNativeLibraryFile(armv7Copy, patchArm64 = false)
+            val arm64PatchedOnce = arm64Copy.readBytes()
+            val armv7PatchedOnce = armv7Copy.readBytes()
+
+            // Re-run on already-patched .so files to verify idempotent resolution and zero byte drift.
+            patchNativeLibraryFile(arm64Copy, patchArm64 = true)
+            patchNativeLibraryFile(armv7Copy, patchArm64 = false)
+            val arm64PatchedTwice = arm64Copy.readBytes()
+            val armv7PatchedTwice = armv7Copy.readBytes()
+            check(arm64PatchedOnce.contentEquals(arm64PatchedTwice)) {
+                "Idempotency violation on arm64 libPaintLib.so"
+            }
+            check(armv7PatchedOnce.contentEquals(armv7PatchedTwice)) {
+                "Idempotency violation on armv7 libPaintLib.so"
+            }
+
+            val arm64Idemp = resolveArm64Targets(arm64PatchedTwice)
+            assertParity("arm64.idempotent.dder0", formatHex(arm64Idemp.dder0Prologue.fileOffset), "0x1021C")
+            assertParity("arm64.idempotent.dumbii", formatHex(arm64Idemp.dumbiiCheck.fileOffset), "0x10808")
+            assertParity("arm64.idempotent.JNI_OnLoad", formatHex(arm64Idemp.jniOnLoadCheck.fileOffset), "0x131FC")
+            assertParity("arm64.idempotent.alreadyPatched", arm64Idemp.dder0Prologue.alreadyPatched.toString(), "true")
+
+            val armv7Idemp = resolveArmv7Targets(armv7PatchedTwice)
+            assertParity("armv7.idempotent.dder0", formatHex(armv7Idemp.dder0Prologue.fileOffset), "0x9490")
+            assertParity("armv7.idempotent.JNI_OnLoad", formatHex(armv7Idemp.jniOnLoadCheck.fileOffset), "0xB424")
+            assertParity("armv7.idempotent.alreadyPatched", armv7Idemp.dder0Prologue.alreadyPatched.toString(), "true")
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 }
 
 private fun MultiVersionResolvers.resolveSingleClassFromTest(
