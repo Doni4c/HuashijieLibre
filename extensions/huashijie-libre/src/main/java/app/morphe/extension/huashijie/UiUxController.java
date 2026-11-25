@@ -704,26 +704,6 @@ public final class UiUxController {
         } catch (Throwable ignored) {}
     }
 
-    /**
-     * Purges domestic Chinese social media platforms (QQ, WeChat, QZone, WechatMoments)
-     * from all export flows, preserving only Album, local File, and system sharesheet.
-     */
-    public static void purgeSocialMediaExportPlatforms(java.util.ArrayList<?> list) {
-        if (list == null) return;
-        try {
-            java.util.Iterator<?> it = list.iterator();
-            while (it.hasNext()) {
-                Object item = it.next();
-                if (item != null) {
-                    String clsName = item.getClass().getName();
-                    if (clsName.contains("PlatformInfo")) {
-                        it.remove();
-                    }
-                }
-            }
-        } catch (Throwable ignored) {}
-    }
-
     private static void disallowParentInterceptRecursive(View v) {
         if (v == null) return;
         if (v instanceof android.widget.SeekBar || v.getClass().getName().contains("Seekbar")) {

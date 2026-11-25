@@ -24,9 +24,174 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class LibreResourceResolver {
     private static final ConcurrentHashMap<String, Integer> ID_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Object> REFLECT_CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, String> TARGET_REGISTRY = new ConcurrentHashMap<>();
     private static volatile Context sAppContext;
 
+    static {
+        registerResolvedTargets();
+    }
+
     private LibreResourceResolver() {}
+
+    /**
+     * Populated at patch time by individual feature patches via registerTarget calls
+     * so each patch can seed its resolved host descriptors independently.
+     */
+    public static void registerResolvedTargets() {}
+
+    /**
+     * Registers a patch-time resolved class, field, or method descriptor under a stable key.
+     */
+    public static void registerTarget(String key, String value) {
+        if (key == null || value == null) return;
+        String trimmedKey = key.trim();
+        String trimmedVal = value.trim();
+        if (!trimmedKey.isEmpty() && !trimmedVal.isEmpty()) {
+            TARGET_REGISTRY.put(trimmedKey, trimmedVal);
+        }
+    }
+
+    public static boolean isTargetRegistered(String key) {
+        return key != null && TARGET_REGISTRY.containsKey(key.trim());
+    }
+
+    public static String getRegisteredTarget(String key) {
+        if (key == null) return null;
+        return TARGET_REGISTRY.get(key.trim());
+    }
+
+    private static String normalizeClassName(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+        if (s.startsWith("L") && s.endsWith(";") && s.length() > 2) {
+            s = s.substring(1, s.length() - 1);
+        }
+        return s.replace('/', '.');
+    }
+
+    public static String getRegisteredClassName(String key) {
+        return getRegisteredClassName(key, null);
+    }
+
+    public static String getRegisteredClassName(String key, String fallbackClassName) {
+        String reg = getRegisteredTarget(key);
+        String normalized = normalizeClassName(reg);
+        if (normalized != null) {
+            return normalized;
+        }
+        return normalizeClassName(fallbackClassName);
+    }
+
+    private static String normalizeMemberName(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+        int arrow = s.indexOf("->");
+        if (arrow >= 0) {
+            s = s.substring(arrow + 2);
+        }
+        int colon = s.indexOf(':');
+        if (colon >= 0) {
+            s = s.substring(0, colon);
+        }
+        int paren = s.indexOf('(');
+        if (paren >= 0) {
+            s = s.substring(0, paren);
+        }
+        s = s.trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    public static String getRegisteredMemberName(String key) {
+        return getRegisteredMemberName(key, null);
+    }
+
+    public static String getRegisteredMemberName(String key, String fallbackMemberName) {
+        String reg = getRegisteredTarget(key);
+        String normalized = normalizeMemberName(reg);
+        if (normalized != null) {
+            return normalized;
+        }
+        return normalizeMemberName(fallbackMemberName);
+    }
+
+    public static Class<?> loadRegisteredClass(String key, String fallbackClassName) {
+        String className = getRegisteredClassName(key, fallbackClassName);
+        if (className == null) return null;
+        String cacheKey = "C:" + className;
+        Object cached = REFLECT_CACHE.get(cacheKey);
+        if (cached instanceof Class<?>) {
+            return (Class<?>) cached;
+        }
+        Class<?> resolved = null;
+        Context appCtx = sAppContext;
+        if (appCtx != null) {
+            try {
+                ClassLoader appLoader = appCtx.getClassLoader();
+                if (appLoader != null) {
+                    resolved = Class.forName(className, false, appLoader);
+                }
+            } catch (Throwable ignored) {}
+        }
+        if (resolved == null) {
+            try {
+                ClassLoader ownLoader = LibreResourceResolver.class.getClassLoader();
+                if (ownLoader != null) {
+                    resolved = Class.forName(className, false, ownLoader);
+                }
+            } catch (Throwable ignored) {}
+        }
+        if (resolved == null) {
+            try {
+                resolved = Class.forName(className);
+            } catch (Throwable ignored) {}
+        }
+        if (resolved != null) {
+            REFLECT_CACHE.put(cacheKey, resolved);
+        }
+        return resolved;
+    }
+
+    public static Field findRegisteredField(
+            Class<?> targetClass,
+            String registryKey,
+            String fallbackName,
+            Class<?> exactType,
+            String typeNameContains
+    ) {
+        return findField(
+                targetClass,
+                getRegisteredMemberName(registryKey, fallbackName),
+                exactType,
+                typeNameContains
+        );
+    }
+
+    public static Method findRegisteredMethod(
+            Class<?> targetClass,
+            String registryKey,
+            String fallbackName,
+            Class<?> returnType,
+            boolean requireStatic,
+            Class<?>... paramTypes
+    ) {
+        return findMethod(
+                targetClass,
+                getRegisteredMemberName(registryKey, fallbackName),
+                returnType,
+                requireStatic,
+                paramTypes
+        );
+    }
+
+    public static Object getRegisteredStaticSingleton(
+            Class<?> targetClass,
+            String registryKey,
+            String fallbackGetterName
+    ) {
+        return getStaticSingleton(targetClass, getRegisteredMemberName(registryKey, fallbackGetterName));
+    }
 
     public static void init(Context context) {
         if (context == null) return;
