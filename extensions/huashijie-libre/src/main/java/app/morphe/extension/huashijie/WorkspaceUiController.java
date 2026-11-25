@@ -7807,24 +7807,26 @@ public final class WorkspaceUiController {
         }
     }
 
+    private static Field resolveTypedToggleField(Class<?> cls, String exactName, Class<?> expectedType) {
+        Field field = LibreResourceResolver.findField(cls, exactName, expectedType, null);
+        if (field == null) return null;
+        Class<?> actualType = field.getType();
+        if (expectedType.isPrimitive()) {
+            return actualType == expectedType ? field : null;
+        }
+        return expectedType.isAssignableFrom(actualType) ? field : null;
+    }
+
     private static void ensureToggleFields(Class<?> cls) {
         if (sToggleFieldsResolved || cls == null) return;
         synchronized (WorkspaceUiController.class) {
             if (sToggleFieldsResolved) return;
-            try {
-                fToggleNames = cls.getDeclaredField("names");
-                fToggleNames.setAccessible(true);
-                fToggleBgRect = cls.getDeclaredField("bgRect");
-                fToggleBgRect.setAccessible(true);
-                fToggleSelectIndex = cls.getDeclaredField("selectIndex");
-                fToggleSelectIndex.setAccessible(true);
-                fToggleTextPaint = cls.getDeclaredField("textPaint");
-                fToggleTextPaint.setAccessible(true);
-                fToggleSelectTextPaint = cls.getDeclaredField("selectTextPaint");
-                fToggleSelectTextPaint.setAccessible(true);
-                fToggleFontSize = cls.getDeclaredField("fontSize");
-                fToggleFontSize.setAccessible(true);
-            } catch (Throwable ignored) {}
+            fToggleNames = resolveTypedToggleField(cls, "names", ArrayList.class);
+            fToggleBgRect = resolveTypedToggleField(cls, "bgRect", RectF.class);
+            fToggleSelectIndex = resolveTypedToggleField(cls, "selectIndex", int.class);
+            fToggleTextPaint = resolveTypedToggleField(cls, "textPaint", Paint.class);
+            fToggleSelectTextPaint = resolveTypedToggleField(cls, "selectTextPaint", Paint.class);
+            fToggleFontSize = resolveTypedToggleField(cls, "fontSize", int.class);
             sToggleFieldsResolved = true;
         }
     }

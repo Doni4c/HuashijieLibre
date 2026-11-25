@@ -27,6 +27,8 @@ val blockUmengSdkPatch = bytecodePatch(
             methodNames = setOf("init", "preInit"),
             conditionSignature = SHOULD_BLOCK_UMENG,
             labelName = "cond_allow_umeng",
+            expectedSourceFile = "UMConfigure.java",
+            sdkIdentifierStrings = setOf("UMConfigure", "com.umeng.commonsdk.UMConfigure"),
         )
     }
 }

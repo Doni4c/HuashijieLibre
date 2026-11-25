@@ -11,7 +11,6 @@ import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedT
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toFingerprint
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
-import app.morphe.patches.huashijie.core.findPrevOpcode
 import app.morphe.patches.huashijie.core.hookPaintBubblePopupBeforeShow
 import app.morphe.patches.huashijie.core.invokeRegisterList
 import app.morphe.patches.huashijie.core.libreSettingsPatch
@@ -21,6 +20,7 @@ import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
@@ -159,6 +159,30 @@ private fun findExportListRegistersBefore(
     return ordered.toList()
 }
 
+private fun findPrevViewSetTagIndex(
+    instructions: List<Instruction>,
+    beforeIndex: Int,
+    maxLookback: Int = 16,
+): Int {
+    val start = minOf(instructions.lastIndex, beforeIndex - 1)
+    val end = maxOf(0, start - maxLookback)
+    for (i in start downTo end) {
+        val inst = instructions[i]
+        if (inst.opcode != Opcode.INVOKE_VIRTUAL && inst.opcode != Opcode.INVOKE_VIRTUAL_RANGE) {
+            continue
+        }
+        val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: continue
+        if (ref.definingClass == "Landroid/view/View;" &&
+            ref.name == "setTag" &&
+            ref.returnType == "V" &&
+            ref.parameterTypes.map { it.toString() } == listOf("Ljava/lang/Object;")
+        ) {
+            return i
+        }
+    }
+    return -1
+}
+
 internal fun BytecodePatchContext.ensureExportAdapterShareHooksInjected() {
     val classes = allClasses()
     val prepMethod = toMutableMethod(MultiVersionResolvers.resolveExportPictureViewPrepareAdapter(classes))
@@ -242,15 +266,9 @@ internal fun BytecodePatchContext.ensureExportAdapterShareHooksInjected() {
     if (!alreadyBound) {
         val retIdx = bindInsns.indexOfLast { it.opcode == Opcode.RETURN_VOID }
         check(retIdx >= 0) { "RETURN_VOID not found in CustomPlatformPageAdapter.onBindViewHolder" }
-        val setTagIdx = bindInsns.findPrevOpcode(retIdx, Opcode.INVOKE_VIRTUAL, maxLookback = 4)
-        check(setTagIdx >= 0) { "View.setTag not found before RETURN_VOID in CustomPlatformPageAdapter.onBindViewHolder" }
-        val setTagRef = (bindInsns[setTagIdx] as? ReferenceInstruction)?.reference as? MethodReference
-        check(
-            setTagRef != null &&
-                setTagRef.definingClass == "Landroid/view/View;" &&
-                setTagRef.name == "setTag",
-        ) {
-            "Expected View.setTag before RETURN_VOID in CustomPlatformPageAdapter.onBindViewHolder, got $setTagRef"
+        val setTagIdx = findPrevViewSetTagIndex(bindInsns, retIdx)
+        check(setTagIdx >= 0) {
+            "Landroid/view/View;->setTag(Ljava/lang/Object;)V not found before RETURN_VOID in CustomPlatformPageAdapter.onBindViewHolder"
         }
 
         val thisReg = bindMethod.thisRegisterIndex()
@@ -263,11 +281,17 @@ internal fun BytecodePatchContext.ensureExportAdapterShareHooksInjected() {
         } else {
             val (t1, lowThis, idx1) = resolveLowRegisterAt(bindMethod, retIdx, thisReg, rootViewReg)
             val finalThis = t1.thisRegisterIndex()
-            val finalSetTagIdx = t1.implementation!!.instructions.findPrevOpcode(idx1, Opcode.INVOKE_VIRTUAL, maxLookback = 4)
+            val finalSetTagIdx = findPrevViewSetTagIndex(t1.implementation!!.instructions, idx1)
+            check(finalSetTagIdx >= 0) {
+                "Landroid/view/View;->setTag(Ljava/lang/Object;)V lost after register expansion in CustomPlatformPageAdapter.onBindViewHolder"
+            }
             val finalRootView = invokeRegisterList(t1.implementation!!.instructions[finalSetTagIdx])[0]
             val (t2, lowRoot, idx2) = resolveLowRegisterAt(t1, idx1, lowThis, finalThis, finalRootView)
             val fThis = t2.thisRegisterIndex()
-            val fSetTagIdx = t2.implementation!!.instructions.findPrevOpcode(idx2, Opcode.INVOKE_VIRTUAL, maxLookback = 4)
+            val fSetTagIdx = findPrevViewSetTagIndex(t2.implementation!!.instructions, idx2)
+            check(fSetTagIdx >= 0) {
+                "Landroid/view/View;->setTag(Ljava/lang/Object;)V lost after second register expansion in CustomPlatformPageAdapter.onBindViewHolder"
+            }
             val fRoot = invokeRegisterList(t2.implementation!!.instructions[fSetTagIdx])[0]
             t2.addInstructionsPreservingLabels(
                 idx2,

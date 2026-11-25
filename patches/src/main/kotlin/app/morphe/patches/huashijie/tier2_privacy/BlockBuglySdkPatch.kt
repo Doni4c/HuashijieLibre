@@ -27,6 +27,8 @@ val blockBuglySdkPatch = bytecodePatch(
             methodNames = setOf("initCrashReport"),
             conditionSignature = SHOULD_BLOCK_BUGLY,
             labelName = "cond_allow_bugly",
+            expectedSourceFile = "CrashReport.java",
+            sdkIdentifierStrings = setOf("CrashReport", "com.tencent.bugly.crashreport.CrashReport"),
         )
     }
 }

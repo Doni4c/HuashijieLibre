@@ -25,7 +25,9 @@ import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
@@ -195,30 +197,59 @@ val textAutoFitPatch = bytecodePatch(
         }
         var targetOnDraw = toMutableMethod(onDrawMethod)
         fun findToggleTextPaintIdx(instrs: List<com.android.tools.smali.dexlib2.iface.instruction.Instruction>): Int {
-            for (i in instrs.indices) {
-                val inst = instrs[i]
-                if (inst.opcode != Opcode.IGET_OBJECT) continue
-                val fRef = (inst as? ReferenceInstruction)?.reference as? FieldReference ?: continue
-                if (fRef.definingClass == "Lnet/huanci/hsjpro/views/ToggleSwitchView;" && fRef.name == "textPaint") {
-                    val hasFontMetricsSoon = (i + 1..minOf(instrs.lastIndex, i + 4)).any { j ->
-                        val mRef = (instrs[j] as? ReferenceInstruction)?.reference as? MethodReference
-                        mRef != null && mRef.definingClass == "Landroid/graphics/Paint;" && mRef.name == "getFontMetrics"
-                    }
-                    if (hasFontMetricsSoon) return i
+            fun hasGetFontMetricsSoon(idx: Int, paintReg: Int): Boolean =
+                (idx + 1..minOf(instrs.lastIndex, idx + 4)).any { j ->
+                    val mRef = (instrs[j] as? ReferenceInstruction)?.reference as? MethodReference
+                    mRef != null &&
+                        mRef.definingClass == "Landroid/graphics/Paint;" &&
+                        mRef.name == "getFontMetrics" &&
+                        app.morphe.patches.huashijie.core.invokeRegisterList(instrs[j]).firstOrNull() == paintReg
                 }
+
+            val namedIdx = instrs.indices.firstOrNull { i ->
+                val inst = instrs[i]
+                if (inst.opcode != Opcode.IGET_OBJECT || inst !is TwoRegisterInstruction) return@firstOrNull false
+                val fRef = (inst as? ReferenceInstruction)?.reference as? FieldReference ?: return@firstOrNull false
+                fRef.definingClass == toggleSwitchClass.type &&
+                    fRef.name == "textPaint" &&
+                    fRef.type == "Landroid/graphics/Paint;" &&
+                    hasGetFontMetricsSoon(i, inst.registerA)
             }
-            return -1
+            if (namedIdx != null) return namedIdx
+
+            val structuralMatches = instrs.indices.filter { i ->
+                val inst = instrs[i]
+                if (inst.opcode != Opcode.IGET_OBJECT || inst !is TwoRegisterInstruction) return@filter false
+                val fRef = (inst as? ReferenceInstruction)?.reference as? FieldReference ?: return@filter false
+                fRef.definingClass == toggleSwitchClass.type &&
+                    fRef.type == "Landroid/graphics/Paint;" &&
+                    hasGetFontMetricsSoon(i, inst.registerA)
+            }
+            return structuralMatches.singleOrNull() ?: -1
         }
         fun findToggleShowLineIdx(instrs: List<com.android.tools.smali.dexlib2.iface.instruction.Instruction>, afterIdx: Int): Int {
-            for (i in (afterIdx + 1) until instrs.size) {
+            val namedIdx = ((afterIdx + 1) until instrs.size).firstOrNull { i ->
                 val inst = instrs[i]
-                if (inst.opcode != Opcode.IGET_BOOLEAN) continue
-                val fRef = (inst as? ReferenceInstruction)?.reference as? FieldReference ?: continue
-                if (fRef.definingClass == "Lnet/huanci/hsjpro/views/ToggleSwitchView;" && fRef.name == "showLine") {
-                    return i
+                if (inst.opcode != Opcode.IGET_BOOLEAN) return@firstOrNull false
+                val fRef = (inst as? ReferenceInstruction)?.reference as? FieldReference ?: return@firstOrNull false
+                fRef.definingClass == toggleSwitchClass.type &&
+                    fRef.name == "showLine" &&
+                    fRef.type == "Z"
+            }
+            if (namedIdx != null) return namedIdx
+
+            val structuralMatches = ((afterIdx + 1) until instrs.size).filter { i ->
+                val inst = instrs[i]
+                if (inst.opcode != Opcode.IGET_BOOLEAN || inst !is TwoRegisterInstruction) return@filter false
+                val fRef = (inst as? ReferenceInstruction)?.reference as? FieldReference ?: return@filter false
+                if (fRef.definingClass != toggleSwitchClass.type || fRef.type != "Z") return@filter false
+                val boolReg = inst.registerA
+                (i + 1..minOf(instrs.lastIndex, i + 2)).any { j ->
+                    instrs[j].opcode == Opcode.IF_EQZ &&
+                        (instrs[j] as? OneRegisterInstruction)?.registerA == boolReg
                 }
             }
-            return -1
+            return structuralMatches.singleOrNull() ?: -1
         }
 
         val initTextPaintIdx = findToggleTextPaintIdx(targetOnDraw.implementation!!.instructions)

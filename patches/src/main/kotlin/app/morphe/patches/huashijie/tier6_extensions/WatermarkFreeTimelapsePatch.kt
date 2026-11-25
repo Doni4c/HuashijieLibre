@@ -15,6 +15,7 @@ import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
+import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
@@ -26,6 +27,20 @@ private const val TOGGLE_KEY = "libre_clean_speedpaint"
 private const val TRANSLATION_ENGINE_DISPATCH =
     "Lapp/morphe/extension/huashijie/TranslationEngine;->dispatch(ILjava/lang/Object;)Ljava/lang/Object;"
 private const val OP_IS_CLEAN_SPEEDPAINT = 71
+
+private fun resolveLastBooleanParamRegister(method: app.morphe.patcher.util.proxy.mutableTypes.MutableMethod): Int {
+    val params = method.parameterTypes.map { it.toString() }
+    val targetIdx = params.indexOfLast { it == "Z" }
+    check(targetIdx >= 0) {
+        "Boolean parameter not found in ${method.definingClass}->${method.name}(${params.joinToString("")})"
+    }
+    var reg = method.thisRegisterIndex() + if (AccessFlags.STATIC.isSet(method.accessFlags)) 0 else 1
+    for (i in 0 until targetIdx) {
+        val t = params[i]
+        reg += if (t == "J" || t == "D") 2 else 1
+    }
+    return reg
+}
 
 @Suppress("unused")
 val watermarkFreeTimelapsePatch = bytecodePatch(
@@ -141,7 +156,7 @@ val watermarkFreeTimelapsePatch = bytecodePatch(
 
         val glRenderMethod = toMutableMethod(MultiVersionResolvers.resolveGlVideoWatermarkRenderFrame(classes))
         run {
-            val wmParamReg = glRenderMethod.thisRegisterIndex() + 7
+            val wmParamReg = resolveLastBooleanParamRegister(glRenderMethod)
             val instructions = glRenderMethod.implementation!!.instructions
             val ifEqzIdx = instructions.indexOfFirst { inst ->
                 inst.opcode == Opcode.IF_EQZ &&

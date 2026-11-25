@@ -18,6 +18,7 @@ import app.morphe.patches.huashijie.core.MultiVersionResolvers.toMutableMethod
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
 import app.morphe.patches.huashijie.core.emitTranslationDispatch
 import app.morphe.patches.huashijie.core.findMoveResultObjectAfter
+import app.morphe.patches.huashijie.core.findNextOpcode
 import app.morphe.patches.huashijie.core.findPrevOpcode
 import app.morphe.patches.huashijie.core.formatInvokeStaticSingle
 import app.morphe.patches.huashijie.core.hookBottomSheetOnStartDispatch
@@ -37,6 +38,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 import com.android.tools.smali.dexlib2.iface.reference.TypeReference
 
@@ -898,12 +900,13 @@ private fun BytecodePatchContext.applySingleCallSitePatch(
 private fun BytecodePatchContext.hookHuanciPackageCallSites(
     classes3Dex: DexBackedDexFile?,
     classes4Dex: DexBackedDexFile?,
+    psdHelperType: String,
 ) {
     val pendingClasses = mutableListOf<Pair<ClassDef, TargetDex>>()
     classDefForEach { classDef ->
         val isTargetPkg = classDef.type.startsWith("Lnet/huanci/") ||
             classDef.type.startsWith("Lcom/yalantis/ucrop/") ||
-            classDef.type == "Lo00o00oO/o00O0O0O;"
+            classDef.type == psdHelperType
         if (!isTargetPkg) {
             return@classDefForEach
         }
@@ -1116,30 +1119,49 @@ private fun BytecodePatchContext.hookClasses2ToastsAndDrawables() {
                 val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference
                 ref != null && ref.definingClass == "Landroid/content/res/Resources;" && ref.name == "getText"
             }
-            if (getTextIdx >= 0) {
-                val (moveIdx, origOutReg) = instrs.findMoveResultObjectAfter(getTextIdx) ?: (-1 to -1)
-                val regs = invokeRegisterList(instrs[getTextIdx])
-                val resReg = regs.getOrNull(0) ?: -1
-                val idReg = regs.getOrNull(1) ?: -1
-                val retIdx = if (moveIdx >= 0) moveIdx + 1 else -1
-                if (resReg in 0..15 && idReg in 0..15 &&
-                    retIdx in instrs.indices &&
-                    instrs[retIdx].opcode == Opcode.RETURN_OBJECT &&
-                    resReg != idReg
-                ) {
-                    // Use resReg (dead after Resources.getText) so idReg stays Integer across the try/catch block.
-                    strIdMethod.replaceInstruction(moveIdx, "move-result-object v$resReg")
-                    strIdMethod.replaceInstruction(retIdx, "return-object v$resReg")
-                    strIdMethod.addInstructionsPreservingLabels(
-                        retIdx,
-                        """
-                        invoke-static {v$idReg, v$resReg}, $DISPATCH_SIGNATURE
-                        move-result-object v$resReg
-                        check-cast v$resReg, Ljava/lang/CharSequence;
-                        """.trimIndent(),
-                    )
-                }
+            check(getTextIdx >= 0) {
+                "Resources.getText not found in Toaster.stringIdToCharSequence"
             }
+            val moveResult = instrs.findMoveResultObjectAfter(getTextIdx)
+            check(moveResult != null) {
+                "MOVE_RESULT_OBJECT after Resources.getText not found in Toaster.stringIdToCharSequence"
+            }
+            val (moveIdx, origOutReg) = moveResult
+            val retIdx = instrs.findNextOpcode(moveIdx + 1, Opcode.RETURN_OBJECT, maxLookahead = 6)
+            check(retIdx > moveIdx) {
+                "RETURN_OBJECT not found after MOVE_RESULT_OBJECT in Toaster.stringIdToCharSequence"
+            }
+            val retReg = (instrs[retIdx] as? OneRegisterInstruction)?.registerA ?: -1
+            check(retReg == origOutReg) {
+                "Expected RETURN_OBJECT register v$origOutReg, got v$retReg in Toaster.stringIdToCharSequence"
+            }
+            val regs = invokeRegisterList(instrs[getTextIdx])
+            val resReg = regs.getOrNull(0) ?: -1
+            val idReg = regs.getOrNull(1) ?: -1
+            check(resReg in 0..15 && idReg in 0..15 && resReg != idReg) {
+                "Unexpected registers for Resources.getText in Toaster.stringIdToCharSequence: res=v$resReg, id=v$idReg"
+            }
+            val intervening = instrs.subList(moveIdx + 1, retIdx)
+            check(intervening.none { inst ->
+                inst.opcode == Opcode.THROW ||
+                    inst.opcode.name.startsWith("RETURN") ||
+                    (inst.opcode.setsRegister() && (inst as? OneRegisterInstruction)?.registerA.let { reg ->
+                        reg == resReg || reg == idReg || reg == origOutReg
+                    })
+            }) {
+                "Unexpected register mutation or control transfer between MOVE_RESULT_OBJECT and RETURN_OBJECT in Toaster.stringIdToCharSequence"
+            }
+            // Use resReg (dead after Resources.getText) so idReg stays Integer across the try/catch block.
+            strIdMethod.replaceInstruction(moveIdx, "move-result-object v$resReg")
+            strIdMethod.replaceInstruction(retIdx, "return-object v$resReg")
+            strIdMethod.addInstructionsPreservingLabels(
+                retIdx,
+                """
+                invoke-static {v$idReg, v$resReg}, $DISPATCH_SIGNATURE
+                move-result-object v$resReg
+                check-cast v$resReg, Ljava/lang/CharSequence;
+                """.trimIndent(),
+            )
         }
     }
 
@@ -1291,6 +1313,12 @@ private fun BytecodePatchContext.hookD3ArrowBitmaps() {
         val viewDef = allClasses().firstOrNull { it.type == viewType } ?: continue
         val mutableView = mutableClassDefBy(viewDef)
 
+        val onDrawMethod = mutableView.methods.firstOrNull {
+            it.name == "onDraw" &&
+                it.parameters.map { p -> p.type } == listOf("Landroid/graphics/Canvas;") &&
+                it.implementation != null
+        }
+
         val showMethod = mutableView.methods.firstOrNull {
             it.name == "show" && it.parameters.isEmpty() && it.returnType == "V" && it.implementation != null
         }
@@ -1298,10 +1326,46 @@ private fun BytecodePatchContext.hookD3ArrowBitmaps() {
             val origThis = showMethod.thisRegisterIndex()
             val (updated, nullReg, _) = resolveLowRegisterAt(showMethod, 0, origThis)
             val curThis = updated.thisRegisterIndex()
-            val clearFields = listOf("lrBitmap", "udBitmap", "fbBitmap").filter { fname ->
-                mutableView.fields.any { it.name == fname && it.type == "Landroid/graphics/Bitmap;" }
+            val namedFields = listOf("lrBitmap", "udBitmap", "fbBitmap").filter { fname ->
+                mutableView.fields.any {
+                    !AccessFlags.STATIC.isSet(it.accessFlags) &&
+                        it.name == fname &&
+                        it.type == "Landroid/graphics/Bitmap;"
+                }
             }
-            if (clearFields.isNotEmpty() && curThis in 0..15 && nullReg in 0..15) {
+            val clearFields = if (namedFields.isNotEmpty()) {
+                namedFields
+            } else {
+                val instanceBitmapFields = mutableView.fields
+                    .filter {
+                        !AccessFlags.STATIC.isSet(it.accessFlags) &&
+                            it.type == "Landroid/graphics/Bitmap;"
+                    }
+                    .map { it.name }
+                    .toSet()
+                onDrawMethod?.implementation?.instructions
+                    ?.mapNotNull { inst ->
+                        if (inst.opcode != Opcode.IGET_OBJECT && inst.opcode != Opcode.IPUT_OBJECT) {
+                            return@mapNotNull null
+                        }
+                        val ref = (inst as? ReferenceInstruction)?.reference as? FieldReference
+                            ?: return@mapNotNull null
+                        if (ref.definingClass == viewType &&
+                            ref.type == "Landroid/graphics/Bitmap;" &&
+                            ref.name in instanceBitmapFields
+                        ) {
+                            ref.name
+                        } else {
+                            null
+                        }
+                    }
+                    ?.distinct()
+                    .orEmpty()
+            }
+            check(clearFields.isNotEmpty()) {
+                "No Bitmap fields resolved to clear in $viewType->show()V"
+            }
+            if (curThis in 0..15 && nullReg in 0..15) {
                 val sb = StringBuilder("const/4 v$nullReg, 0\n")
                 for (fname in clearFields) {
                     sb.append("iput-object v$nullReg, v$curThis, $viewType->$fname:Landroid/graphics/Bitmap;\n")
@@ -1310,12 +1374,7 @@ private fun BytecodePatchContext.hookD3ArrowBitmaps() {
             }
         }
 
-        val onDrawMethod = mutableView.methods.firstOrNull {
-            it.name == "onDraw" &&
-                it.parameters.map { p -> p.type } == listOf("Landroid/graphics/Canvas;") &&
-                it.implementation != null
-        } ?: continue
-        var curMethod = onDrawMethod
+        var curMethod: MutableMethod = onDrawMethod ?: continue
         val initialInstrs = curMethod.implementation!!.instructions.toList()
         val matchCount = initialInstrs.indices.count { idx ->
             val ref = (initialInstrs[idx] as? ReferenceInstruction)?.reference as? MethodReference
@@ -1717,8 +1776,14 @@ val dynamicTranslationPatch = bytecodePatch(
         hookClasses2ToastsAndDrawables()
         hookRxToastAndDraftAdapters()
         hookD3ArrowBitmaps()
-        hookHuanciPackageCallSites(classes3Dex = classes3Dex, classes4Dex = classes4Dex)
-        hookHuanciCanvasDrawText()
+        hookHuanciPackageCallSites(
+            classes3Dex = classes3Dex,
+            classes4Dex = classes4Dex,
+            psdHelperType = MultiVersionResolvers.resolvePsdHelperClass(classes).type,
+        )
+        hookHuanciCanvasDrawText(
+            shareBitmapWrapperType = MultiVersionResolvers.resolveShareBitmapWrapperClass(classes).type,
+        )
     }
 }
 
@@ -2039,13 +2104,13 @@ private fun isCanvasDrawTextStringCall(inst: Instruction): Boolean {
         listOf("Ljava/lang/String;", "F", "F", "Landroid/graphics/Paint;")
 }
 
-private fun BytecodePatchContext.hookHuanciCanvasDrawText() {
+private fun BytecodePatchContext.hookHuanciCanvasDrawText(shareBitmapWrapperType: String) {
     val targetClasses = mutableListOf<ClassDef>()
     classDefForEach { classDef ->
         val isTarget = (classDef.type.startsWith("Lnet/huanci/") &&
             classDef.type != "Lnet/huanci/hsjpro/paint/views/TextViewVertical;" &&
             classDef.type != "Lnet/huanci/hsjpro/paint/views/PaintTextView;") ||
-            classDef.type == "Lo00Oo0Oo/o00O00;"
+            classDef.type == shareBitmapWrapperType
         if (!isTarget) return@classDefForEach
         val hasDrawText = classDef.methods.any { m ->
             m.implementation?.instructions?.any { isCanvasDrawTextStringCall(it) } == true

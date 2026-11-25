@@ -18,6 +18,7 @@ import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
 import app.morphe.patches.huashijie.core.resolveLowRegisterAt
 import app.morphe.patches.huashijie.core.thisRegisterIndex
+import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.iface.ClassDef
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
@@ -27,6 +28,21 @@ private const val TOGGLE_KEY = "libre_system_share_sheet"
 private const val HANDLE_SHARE_METHOD =
     "Lapp/morphe/extension/huashijie/GlobalCompatibilityController;->handleShare(Landroid/app/Activity;Ljava/lang/String;)Z"
 
+private fun resolveStringParamRegister(method: MutableMethod): Int {
+    val params = method.parameterTypes.map { it.toString() }
+    val matchIndices = params.indices.filter { params[it] == "Ljava/lang/String;" }
+    check(matchIndices.size == 1) {
+        "Expected exactly 1 Ljava/lang/String; parameter in ${method.definingClass}->${method.name}(${params.joinToString("")}), found ${matchIndices.size}"
+    }
+    val targetIdx = matchIndices[0]
+    var reg = method.thisRegisterIndex() + if (AccessFlags.STATIC.isSet(method.accessFlags)) 0 else 1
+    for (i in 0 until targetIdx) {
+        val t = params[i]
+        reg += if (t == "J" || t == "D") 2 else 1
+    }
+    return reg
+}
+
 internal fun BytecodePatchContext.injectSystemShareGuard(method: MutableMethod) {
     val alreadyHooked = method.implementation!!.instructions.any { insn ->
         val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference
@@ -35,7 +51,7 @@ internal fun BytecodePatchContext.injectSystemShareGuard(method: MutableMethod) 
     if (alreadyHooked) return
 
     val origThis = method.thisRegisterIndex()
-    val origPath = origThis + 2
+    val origPath = resolveStringParamRegister(method)
     val (target1, low1, idx1) = resolveLowRegisterAt(
         method = method,
         insertIndex = 0,
@@ -43,7 +59,7 @@ internal fun BytecodePatchContext.injectSystemShareGuard(method: MutableMethod) 
         origPath,
     )
     val thisReg = target1.thisRegisterIndex()
-    val pathReg = thisReg + 2
+    val pathReg = resolveStringParamRegister(target1)
 
     if (thisReg in 0..15 && pathReg in 0..15) {
         val resumeInsn: Instruction = target1.getInstruction(idx1)
@@ -66,7 +82,7 @@ internal fun BytecodePatchContext.injectSystemShareGuard(method: MutableMethod) 
             pathReg,
         )
         val finalThis = target2.thisRegisterIndex()
-        val finalPath = finalThis + 2
+        val finalPath = resolveStringParamRegister(target2)
         val resumeInsn: Instruction = target2.getInstruction(idx2)
         target2.addInstructionsWithLabels(
             idx2,
