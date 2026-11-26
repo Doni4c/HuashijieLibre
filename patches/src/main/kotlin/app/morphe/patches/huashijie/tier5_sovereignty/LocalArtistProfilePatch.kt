@@ -8,12 +8,16 @@ import app.morphe.patches.huashijie.core.MultiVersionResolvers.allClasses
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.registerResolvedTarget
 import app.morphe.patches.huashijie.core.MultiVersionResolvers.toJavaClassName
 import app.morphe.patches.huashijie.core.addInstructionsPreservingLabels
+import app.morphe.patches.huashijie.core.emitTranslationDispatch
+import app.morphe.patches.huashijie.core.exactClassMethodFingerprint
 import app.morphe.patches.huashijie.core.libreSettingsPatch
 import app.morphe.patches.huashijie.core.nativeSignatureBypassPatch
 import app.morphe.patches.huashijie.core.registerToggleBeforeSettingsPanel
+import app.morphe.patches.huashijie.core.thisRegisterIndex
 import com.android.tools.smali.dexlib2.Opcode
 
 private const val TOGGLE_KEY = "libre_offline_user_stub"
+private const val OP_SYNC_DRAWER_ACCOUNT_VISIBILITY = 52
 private const val SETUP_OFFLINE_PROFILE =
     "Lapp/morphe/extension/huashijie/OfflineAccountController;->setupOfflineUserStub()V"
 
@@ -33,6 +37,13 @@ private val mainActivityInitViewFingerprint = Fingerprint(
     custom = { _, classDef ->
         classDef.type == "Lnet/huanci/hsjpro/activities/MainActivity;"
     },
+)
+
+private val mainDrawerLayoutShowFingerprint = exactClassMethodFingerprint(
+    "Lnet/huanci/hsjpro/views/MainDrawerLayout;",
+    "show",
+    "V",
+    "I",
 )
 
 @Suppress("unused")
@@ -71,5 +82,25 @@ val localArtistProfilePatch = bytecodePatch(
             0,
             "invoke-static {}, $SETUP_OFFLINE_PROFILE",
         )
+        val mainRetIdx = mainMethod.implementation!!.instructions.indexOfLast {
+            it.opcode == Opcode.RETURN_VOID
+        }
+        check(mainRetIdx >= 0) { "RETURN_VOID not found in MainActivity.initView" }
+        emitTranslationDispatch(
+            method = mainMethod,
+            insertIndex = mainRetIdx,
+            opCode = OP_SYNC_DRAWER_ACCOUNT_VISIBILITY,
+        ) { m, _ -> m.thisRegisterIndex() }
+
+        val drawerShow = mainDrawerLayoutShowFingerprint.method
+        val drawerRetIdx = drawerShow.implementation!!.instructions.indexOfLast {
+            it.opcode == Opcode.RETURN_VOID
+        }
+        check(drawerRetIdx >= 0) { "RETURN_VOID not found in MainDrawerLayout.show(I)V" }
+        emitTranslationDispatch(
+            method = drawerShow,
+            insertIndex = drawerRetIdx,
+            opCode = OP_SYNC_DRAWER_ACCOUNT_VISIBILITY,
+        ) { m, _ -> m.thisRegisterIndex() }
     }
 }

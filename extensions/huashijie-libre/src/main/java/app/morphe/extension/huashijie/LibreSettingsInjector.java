@@ -1093,6 +1093,7 @@ public final class LibreSettingsInjector {
                         } else {
                             markRestartNeeded.run();
                         }
+                        OfflineAccountController.syncLastDrawerAccountVisibility();
                     });
         }
     }

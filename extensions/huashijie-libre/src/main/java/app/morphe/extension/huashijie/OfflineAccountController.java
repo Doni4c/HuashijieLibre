@@ -1,7 +1,10 @@
 package app.morphe.extension.huashijie;
 
+import android.app.Activity;
 import android.util.Log;
+import android.view.View;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 
 /**
@@ -11,11 +14,67 @@ import java.lang.reflect.Field;
  */
 public final class OfflineAccountController {
     private static final String TAG = "OfflineAccount";
+    private static final int ID_ACCOUNT_SAFE_VIEW = 0x7f090049;
+    private static final int TAG_HIDDEN_BY_OFFLINE_PROFILE = 0x7e098810;
+    private static volatile WeakReference<View> sLastDrawerRef = new WeakReference<>(null);
 
     private OfflineAccountController() {}
 
     public static boolean isOfflineProfileActive() {
         return LibreConfig.isFeatureActive(LibreConfig.KEY_OFFLINE_USER_STUB);
+    }
+
+    /**
+     * Hides or restores the Account & Security drawer item (account_safe_view)
+     * in synchronization with the offline artist profile toggle without affecting
+     * sibling drawer entries or leaving layout gaps.
+     */
+    public static void syncDrawerAccountSafeVisibility(Object target) {
+        syncDrawerAccountSafeVisibility(target, false);
+    }
+
+    public static void syncLastDrawerAccountVisibility() {
+        View lastRoot = sLastDrawerRef.get();
+        if (lastRoot != null) {
+            syncDrawerAccountSafeVisibility(lastRoot, true);
+        }
+    }
+
+    private static void syncDrawerAccountSafeVisibility(Object target, boolean restoreVisibleNow) {
+        try {
+            View root = null;
+            if (target instanceof View) {
+                root = (View) target;
+            } else if (target instanceof Activity) {
+                Activity act = (Activity) target;
+                if (act.getWindow() != null) {
+                    root = act.getWindow().getDecorView();
+                }
+            }
+            if (root == null) return;
+
+            View accountSafe = LibreResourceResolver.findViewByName(
+                    root, "account_safe_view", ID_ACCOUNT_SAFE_VIEW);
+            if (accountSafe == null) return;
+
+            sLastDrawerRef = new WeakReference<>(root);
+            if (isOfflineProfileActive()) {
+                accountSafe.setTag(TAG_HIDDEN_BY_OFFLINE_PROFILE, Boolean.TRUE);
+                WorkspaceUiController.hideViewCleanly(accountSafe);
+            } else if (Boolean.TRUE.equals(accountSafe.getTag(TAG_HIDDEN_BY_OFFLINE_PROFILE))) {
+                accountSafe.setTag(TAG_HIDDEN_BY_OFFLINE_PROFILE, null);
+                if (!accountSafe.isEnabled()) {
+                    accountSafe.setEnabled(true);
+                }
+                if (!accountSafe.isClickable()) {
+                    accountSafe.setClickable(true);
+                }
+                if (restoreVisibleNow && accountSafe.getVisibility() != View.VISIBLE) {
+                    accountSafe.setVisibility(View.VISIBLE);
+                    accountSafe.requestLayout();
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     /**

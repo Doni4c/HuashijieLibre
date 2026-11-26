@@ -1126,9 +1126,9 @@ public final class TypographyNormalizer {
         // State 1: 100% origTextSize, 1 line.
         tp.setTextSize(origPx);
         tp.setTextScaleX(baseScaleX);
-        float w1 = measureHarfBuzzWidth(str, tp);
         float fm1 = measureFontMetricsLineHeight(tp);
-        if (w1 <= safeW + 0.5f && (hardAvailH <= 0 || fm1 <= hardAvailH + 2f)) {
+        if (fitsSingleLineStrictly(str, tp, safeW, safeMult, spacingAdd, includePad, rtl)
+                && (hardAvailH <= 0 || fm1 <= hardAvailH + 2f)) {
             return new CandidatePlan(1, origPx, baseScaleX, 1, 0, false, false);
         }
 
@@ -1144,7 +1144,7 @@ public final class TypographyNormalizer {
             float need2H = Math.max(fm2, sl2.getHeight());
             boolean vOk2 = (hardAvailH <= 0) || (need2H <= hardAvailH + maxGrowthPx + 2f);
             if (lc2 <= 2
-                    && getMaxLineWidth(sl2) <= safeW + 0.5f
+                    && getMaxLineWidth(sl2) <= safeW
                     && !hasDisallowedWordSplit(sl2, str, scriptGroup)
                     && vOk2) {
                 int deltaH = (hardAvailH > 0 && need2H > hardAvailH)
@@ -1167,9 +1167,8 @@ public final class TypographyNormalizer {
                 curPx = nextPx;
                 tp.setTextSize(curPx);
                 tp.setTextScaleX(baseScaleX);
-                float mw = measureHarfBuzzWidth(str, tp);
                 float mh = measureFontMetricsLineHeight(tp);
-                boolean hOk = mw <= safeW + 0.5f;
+                boolean hOk = fitsSingleLineStrictly(str, tp, safeW, safeMult, spacingAdd, includePad, rtl);
                 boolean vOk = (hardAvailH <= 0) || (mh <= hardAvailH + 2f);
                 if (hOk && vOk) {
                     return new CandidatePlan(3, curPx, baseScaleX, 1, 0, false, false);
@@ -1182,11 +1181,12 @@ public final class TypographyNormalizer {
             tp.setTextScaleX(1.0f);
             float wFloor = measureHarfBuzzWidth(str, tp);
             float mhFloor = measureFontMetricsLineHeight(tp);
-            if (wFloor > safeW + 0.5f && wFloor > 1f) {
-                float candScale = Math.max(0.90f, Math.min(1.0f, safeW / wFloor));
+            float safeLimit = Math.max(1f, safeW - 0.5f);
+            if (wFloor > safeLimit && wFloor > 1f) {
+                float candScale = Math.max(0.90f, Math.min(1.0f, safeLimit / wFloor));
                 tp.setTextScaleX(candScale);
-                float scaledW = measureHarfBuzzWidth(str, tp);
-                if (scaledW <= safeW + 0.5f && (hardAvailH <= 0 || mhFloor <= hardAvailH + 2f)) {
+                if (fitsSingleLineStrictly(str, tp, safeW, safeMult, spacingAdd, includePad, rtl)
+                        && (hardAvailH <= 0 || mhFloor <= hardAvailH + 2f)) {
                     return new CandidatePlan(3, floorPx, candScale, 1, 0, false, false);
                 }
             }
@@ -1201,6 +1201,7 @@ public final class TypographyNormalizer {
                     ? (safeW + Math.max(0, safePadL) + Math.max(0, safePadR))
                     : (safeW + 2 * minSafeInsetPx);
             int avail3BW = Math.max(1, totalSlotW - 2 * minSafeInsetPx);
+            float safe3BLimit = Math.max(1f, avail3BW - 0.5f);
 
             // Step 3B-1: Preserve group uniform font size (protectedFloor) by tightening safeInset down to >= 3dp
             // combined with gentle horizontal compression textScaleX >= 0.88f (strictly SCRIPT_LATIN_CYRILLIC_GREEK).
@@ -1210,17 +1211,17 @@ public final class TypographyNormalizer {
             float mhFloor3B = measureFontMetricsLineHeight(tp);
             boolean vOk3B1 = (hardAvailH <= 0) || (mhFloor3B <= hardAvailH + 2f);
             if (vOk3B1 && wFloor3B > 1f) {
-                if (wFloor3B <= avail3BW + 0.5f) {
+                if (wFloor3B <= safe3BLimit) {
                     int maxOrigPad = Math.max(minSafeInsetPx, Math.min(safePadL, safePadR));
                     int fitInset = clamp((totalSlotW - (int) Math.ceil(wFloor3B)) / 2, minSafeInsetPx, maxOrigPad);
                     return new CandidatePlan(STATE_SINGLE_WORD_3B1, floorPx, 1.0f, 1, 0, false, false, fitInset);
                 }
                 float candScale3B1 = (scriptGroup == SCRIPT_LATIN_CYRILLIC_GREEK)
-                        ? Math.max(0.88f, Math.min(1.0f, avail3BW / wFloor3B))
+                        ? Math.max(0.88f, Math.min(1.0f, safe3BLimit / wFloor3B))
                         : 1.0f;
                 tp.setTextScaleX(candScale3B1);
                 float scaledW3B1 = measureHarfBuzzWidth(str, tp);
-                if (scaledW3B1 <= avail3BW + 0.5f) {
+                if (scaledW3B1 <= safe3BLimit) {
                     return new CandidatePlan(STATE_SINGLE_WORD_3B1, floorPx, candScale3B1, 1, 0, false, false, minSafeInsetPx);
                 }
             }
@@ -1243,15 +1244,15 @@ public final class TypographyNormalizer {
                     float mhCur = measureFontMetricsLineHeight(tp);
                     boolean vOk3B2 = (hardAvailH <= 0) || (mhCur <= hardAvailH + 2f);
                     if (vOk3B2 && wCur > 1f) {
-                        if (wCur <= avail3BW + 0.5f) {
+                        if (wCur <= safe3BLimit) {
                             return new CandidatePlan(STATE_SINGLE_WORD_3B2, curPx, 1.0f, 1, 0, false, false, minSafeInsetPx);
                         }
                         float candScale3B2 = (scriptGroup == SCRIPT_LATIN_CYRILLIC_GREEK)
-                                ? Math.max(0.86f, Math.min(1.0f, avail3BW / wCur))
+                                ? Math.max(0.86f, Math.min(1.0f, safe3BLimit / wCur))
                                 : 1.0f;
                         tp.setTextScaleX(candScale3B2);
                         float scaledW3B2 = measureHarfBuzzWidth(str, tp);
-                        if (scaledW3B2 <= avail3BW + 0.5f) {
+                        if (scaledW3B2 <= safe3BLimit) {
                             return new CandidatePlan(STATE_SINGLE_WORD_3B2, curPx, candScale3B2, 1, 0, false, false, minSafeInsetPx);
                         }
                     }
@@ -1276,7 +1277,7 @@ public final class TypographyNormalizer {
                 float need4H = Math.max(fm4, sl4.getHeight());
                 boolean vOk4 = (hardAvailH <= 0) || (need4H <= hardAvailH + maxGrowthPx + 2f);
                 if (lc4 <= 2
-                        && getMaxLineWidth(sl4) <= safeW + 0.5f
+                        && getMaxLineWidth(sl4) <= safeW
                         && !hasDisallowedWordSplit(sl4, str, scriptGroup)
                         && vOk4) {
                     int deltaH = (hardAvailH > 0 && need4H > hardAvailH)
@@ -1302,6 +1303,35 @@ public final class TypographyNormalizer {
             }
         }
         return new CandidatePlan(5, floorPx, 1.0f, finalLines, finalDeltaH, true, true);
+    }
+
+    /**
+     * Checks single-line fit with integer-width Android TextView StaticLayout parity
+     * so border multi-word strings never pass single-line checks and silently wrap to 2 lines.
+     */
+    public static boolean fitsSingleLineStrictly(
+            String str,
+            TextPaint tp,
+            int safeW,
+            float spacingMult,
+            float spacingAdd,
+            boolean includePad,
+            boolean rtl) {
+        if (str == null || tp == null || safeW <= 0) return false;
+        float w = measureHarfBuzzWidth(str, tp);
+        float strictLimit = Math.max(1f, safeW - 0.5f);
+        if (w > strictLimit) {
+            return false;
+        }
+        if (w > Math.max(1f, safeW - 4f) && (hasNaturalBreakToken(str) || allowsUnspacedLineBreak(str))) {
+            StaticLayout sl = buildStaticLayout(
+                    str, tp, safeW, Layout.Alignment.ALIGN_NORMAL,
+                    spacingMult > 0.1f ? spacingMult : 1.0f, spacingAdd, includePad, 0, null, rtl);
+            if (sl.getLineCount() > 1 || getMaxLineWidth(sl) > strictLimit) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -1394,7 +1424,13 @@ public final class TypographyNormalizer {
         int effPadL = (plan.resolvedSafeInsetPx > 0) ? plan.resolvedSafeInsetPx : padL;
         int effPadR = (plan.resolvedSafeInsetPx > 0) ? plan.resolvedSafeInsetPx : padR;
 
+        ViewParent sigParent = tv.getParent();
+        int containerW = (sigParent instanceof View) ? ((View) sigParent).getWidth() : tv.getWidth();
+        CharSequence curText = tv.getText();
+        int textHash = (curText != null) ? curText.toString().hashCode() : 0;
+
         String sig = sigPrefix
+                + "|" + textHash
                 + "|" + plan.state
                 + "|" + Math.round(finalApplyPx * 4f)
                 + "|" + Math.round(plan.targetScaleX * 100f)
@@ -1403,7 +1439,7 @@ public final class TypographyNormalizer {
                 + "|" + effPadL + "," + effPadR
                 + "|" + plan.resolvedSafeInsetPx
                 + "|" + targetMaxWidth
-                + "|" + tv.getWidth() + "x" + tv.getHeight();
+                + "|" + containerW;
         Object prevSig = tv.getTag(TAG_LAST_SOLVER_SIG);
         tv.setTag(TAG_PHASE2_MANAGED_EPOCH, Integer.valueOf(solverEpoch));
         if (sig.equals(prevSig)) {

@@ -97,6 +97,7 @@ public final class TranslationEngine {
     public static final int OP_HIDE_TIMELAPSE_EXPORT_SOCIAL = 17;
     public static final int OP_SHOULD_ALLOW_BRUSH_EDITING = 50;
     public static final int OP_ENSURE_BRUSH_PACKAGE_LIST = 51;
+    public static final int OP_SYNC_DRAWER_ACCOUNT_VISIBILITY = 52;
     public static final int OP_IS_REF_ROTATION_ENABLED = 70;
     public static final int OP_IS_CLEAN_SPEEDPAINT = 71;
     public static final int OP_APPLY_TEXT_AUTO_FIT = 72;
@@ -470,6 +471,9 @@ public final class TranslationEngine {
                     return LocalBrushController.shouldAllowBrushEditing(false) ? Boolean.TRUE : null;
                 case OP_ENSURE_BRUSH_PACKAGE_LIST:
                     return LocalBrushController.ensureBrushPackageList(arg);
+                case OP_SYNC_DRAWER_ACCOUNT_VISIBILITY:
+                    OfflineAccountController.syncDrawerAccountSafeVisibility(arg);
+                    return null;
                 case OP_IS_REF_ROTATION_ENABLED:
                     return UiUxController.isReferenceRotationEnabled(false) ? Boolean.TRUE : null;
                 case OP_IS_CLEAN_SPEEDPAINT:
@@ -1955,6 +1959,23 @@ public final class TranslationEngine {
             int avail = limitRight - tvLeft - rightObstaclePad;
             if (avail > 0) return avail;
         }
+        if (parent instanceof LinearLayout && ((LinearLayout) parent).getOrientation() == LinearLayout.HORIZONTAL) {
+            int avail = parent.getWidth() - parent.getPaddingLeft() - parent.getPaddingRight() - rightObstaclePad;
+            if (tv.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams tmlp = (ViewGroup.MarginLayoutParams) tv.getLayoutParams();
+                avail -= tmlp.leftMargin + tmlp.rightMargin;
+            }
+            for (int i = 0; i < parent.getChildCount(); i++) {
+                View sib = parent.getChildAt(i);
+                if (sib == null || sib == tv || sib.getVisibility() == View.GONE) continue;
+                avail -= sib.getWidth();
+                if (sib.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams smlp = (ViewGroup.MarginLayoutParams) sib.getLayoutParams();
+                    avail -= smlp.leftMargin + smlp.rightMargin;
+                }
+            }
+            if (avail > 0) return avail;
+        }
         return Math.max(tv.getWidth(), parent.getWidth() - parent.getPaddingLeft() - parent.getPaddingRight() - rightObstaclePad);
     }
 
@@ -2181,6 +2202,11 @@ public final class TranslationEngine {
             if (cs == null || cs.length() == 0) return false;
             String str = cs.toString();
 
+            if (WorkspaceUiController.isPaperNameView(tv)
+                    || WorkspaceUiController.isCanvasPolishToolGridLabel(tv)) {
+                return false;
+            }
+
             // Layer C: Capture original typography baselines once before any mutation.
             captureOrigTextViewState(tv);
             if (!isTextAutoFitActive()) {
@@ -2194,8 +2220,7 @@ public final class TranslationEngine {
             boolean mutated = TypographyNormalizer.prepareTextViewForPipeline(
                     tv, str, activeLocale, activeTf, dynamicI18n);
 
-            if (WorkspaceUiController.isPaperNameView(tv)
-                    || WorkspaceUiController.isPhase2ManagedStripView(tv)) {
+            if (WorkspaceUiController.isPhase2ManagedStripView(tv)) {
                 return mutated;
             }
 
@@ -2352,11 +2377,7 @@ public final class TranslationEngine {
                 int ownerAvail = computeSlotInnerWidthForChild(owningSlot, tv) - rightObstaclePad;
                 slotInnerW = tvFillsContainer ? Math.min(width, ownerAvail) : ownerAvail;
             } else if (tvIsWrap && vp instanceof ViewGroup && ((ViewGroup) vp).getWidth() > 0) {
-                if (vp instanceof LinearLayout && ((LinearLayout) vp).getOrientation() == LinearLayout.HORIZONTAL && directParentInnerW > 0) {
-                    slotInnerW = Math.min(width, directParentInnerW) - rightObstaclePad;
-                } else {
-                    slotInnerW = computeWrapChildAvailWidthInParent((ViewGroup) vp, tv, rightObstaclePad, density);
-                }
+                slotInnerW = computeWrapChildAvailWidthInParent((ViewGroup) vp, tv, rightObstaclePad, density);
             } else {
                 slotInnerW = width - rightObstaclePad;
             }
@@ -2387,7 +2408,7 @@ public final class TranslationEngine {
             if (hasRightIconsHeader) {
                 desiredPadR = Math.max(desiredPadR, Math.round(4f * density));
             }
-            if (useSafeZone && tvFillsContainer && tv.getMaxLines() <= 2) {
+            if (useSafeZone && tvFillsContainer && (origSingleLine || origMaxLines <= 2)) {
                 desiredPadL = Math.max(desiredPadL, safeInset);
                 desiredPadR = Math.max(desiredPadR, safeInset);
             }
@@ -2445,8 +2466,9 @@ public final class TranslationEngine {
             int availHeight = computeSlotAvailableHeightForChild(owningSlot, tv);
             float origFmHeight = TypographyNormalizer.measureFontMetricsLineHeight(measurePaint);
             boolean vertOverflowOrig = availHeight > 0 && origSingleLine && origFmHeight > availHeight + 2f;
+            float strictSingleLimit = Math.max(1f, safeTextAvailW - 0.5f);
             boolean origFitsSingle = !hasEllipsis
-                    && origMeasuredW <= safeTextAvailW + 0.5f
+                    && origMeasuredW <= strictSingleLimit
                     && !vertOverflowOrig
                     && lc <= 1;
 
@@ -2487,7 +2509,7 @@ public final class TranslationEngine {
                 return mutated;
             }
 
-            boolean overflowsOrig = origMeasuredW > safeTextAvailW + 0.5f
+            boolean overflowsOrig = origMeasuredW > strictSingleLimit
                     || hasEllipsis
                     || vertOverflowOrig
                     || (!origSingleLine && lc > Math.max(1, origMaxLines));

@@ -2513,11 +2513,14 @@ public final class WorkspaceUiController {
                     labelTv.setPadding(padH, 0, padH, padB);
                 }
                 TranslationEngine.ensureSafeVietnameseFontPadding(labelTv);
-                setMaxLinesIfChanged(labelTv, 2);
                 int desiredGrav = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
                 setGravityIfChanged(labelTv, desiredGrav);
                 setTextAlignmentIfChanged(labelTv, View.TEXT_ALIGNMENT_CENTER);
-                int w = labelTv.getWidth();
+                int cardInnerW = card.getWidth() - card.getPaddingLeft() - card.getPaddingRight();
+                if (cardInnerW <= 0 && cardLp != null && cardLp.width > 0) {
+                    cardInnerW = cardLp.width - card.getPaddingLeft() - card.getPaddingRight();
+                }
+                int w = cardInnerW > 0 ? cardInnerW : labelTv.getWidth();
                 if (w > padH * 2) {
                     CharSequence cs = labelTv.getText();
                     if (cs != null && cs.length() > 0) {
@@ -2531,87 +2534,119 @@ public final class WorkspaceUiController {
                         }
                         if (origPx > 0f) {
                             String str = cs.toString();
-            int availW = w - padH * 2;
-            Locale activeLoc = TranslationEngine.getActiveLocale();
-            Typeface activeTf = UIFontManager.getActiveTypeface(labelTv.getContext());
-            TypographyNormalizer.prepareTextViewForPipeline(
-                    labelTv, str, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
-            TextPaint tp = TypographyNormalizer.getScratchTextPaint(labelTv.getPaint());
-            TypographyNormalizer.preparePaintForScript(tp, str, activeLoc, activeTf);
-            int sg = TypographyNormalizer.classifyScript(str);
-            boolean allowBreak = TypographyNormalizer.hasNaturalBreakToken(str)
-                    || TypographyNormalizer.allowsUnspacedLineBreak(str);
-            float floorPx = TypographyNormalizer.computeProtectedFloorPx(origPx, labelTv.getResources().getDisplayMetrics());
-            float targetPx = origPx;
-            float targetScaleX = 1.0f;
+                            int availW = w - padH * 2;
+                            Locale activeLoc = TranslationEngine.getActiveLocale();
+                            Typeface activeTf = UIFontManager.getActiveTypeface(labelTv.getContext());
+                            TypographyNormalizer.prepareTextViewForPipeline(
+                                    labelTv, str, activeLoc, activeTf, TranslationEngine.isDynamicI18nEnabled());
+                            TextPaint tp = TypographyNormalizer.getScratchTextPaint(labelTv.getPaint());
+                            TypographyNormalizer.preparePaintForScript(tp, str, activeLoc, activeTf);
+                            int sg = TypographyNormalizer.classifyScript(str);
+                            boolean rtl = TypographyNormalizer.containsRtlChars(str);
+                            boolean allowBreak = TypographyNormalizer.hasNaturalBreakToken(str)
+                                    || TypographyNormalizer.allowsUnspacedLineBreak(str);
+                            float floorPx = TypographyNormalizer.computeProtectedFloorPx(origPx, labelTv.getResources().getDisplayMetrics());
+                            float spacingMult = labelTv.getLineSpacingMultiplier();
+                            float spacingAdd = labelTv.getLineSpacingExtra();
+                            float targetPx = origPx;
+                            float targetScaleX = 1.0f;
 
-            tp.setTextSize(origPx);
-            tp.setTextScaleX(1.0f);
-            float w1 = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
-            boolean fit1 = w1 <= availW + 0.5f;
-            boolean fit2 = false;
-            if (!fit1 && allowBreak) {
-                StaticLayout slOrig = TypographyNormalizer.buildStaticLayout(
-                        str, tp, availW, Layout.Alignment.ALIGN_CENTER,
-                        labelTv.getLineSpacingMultiplier(), labelTv.getLineSpacingExtra(),
-                        true, 0, null, TypographyNormalizer.containsRtlChars(str));
-                if (slOrig.getLineCount() <= 2
-                        && TypographyNormalizer.getMaxLineWidth(slOrig) <= availW + 0.5f
-                        && !TypographyNormalizer.hasDisallowedWordSplit(slOrig, str, sg)) {
-                    fit2 = true;
-                }
-            }
-            if (!fit1 && !fit2) {
-                float curPx = origPx * 0.94f;
-                for (int step = 0; step < 8; step++) {
-                    if (step == 7 || curPx < floorPx) curPx = floorPx;
-                    tp.setTextSize(curPx);
-                    tp.setTextScaleX(1.0f);
-                    if (TypographyNormalizer.measureHarfBuzzWidth(str, tp) <= availW + 0.5f) {
-                        targetPx = curPx;
-                        fit1 = true;
-                        break;
-                    }
-                    if (allowBreak) {
-                        StaticLayout sl = TypographyNormalizer.buildStaticLayout(
-                                str, tp, availW, Layout.Alignment.ALIGN_CENTER,
-                                labelTv.getLineSpacingMultiplier(), labelTv.getLineSpacingExtra(),
-                                true, 0, null, TypographyNormalizer.containsRtlChars(str));
-                        if (sl.getLineCount() <= 2
-                                && TypographyNormalizer.getMaxLineWidth(sl) <= availW + 0.5f
-                                && !TypographyNormalizer.hasDisallowedWordSplit(sl, str, sg)) {
-                            targetPx = curPx;
-                            fit2 = true;
-                            break;
+                            tp.setTextSize(origPx);
+                            tp.setTextScaleX(1.0f);
+                            boolean fit1 = TypographyNormalizer.fitsSingleLineStrictly(
+                                    str, tp, availW, spacingMult, spacingAdd, true, rtl);
+                            boolean fit2 = false;
+                            if (!fit1 && allowBreak) {
+                                StaticLayout slOrig = TypographyNormalizer.buildStaticLayout(
+                                        str, tp, availW, Layout.Alignment.ALIGN_CENTER,
+                                        spacingMult, spacingAdd, true, 0, null, rtl);
+                                if (slOrig.getLineCount() <= 2
+                                        && TypographyNormalizer.getMaxLineWidth(slOrig) <= availW
+                                        && !TypographyNormalizer.hasDisallowedWordSplit(slOrig, str, sg)) {
+                                    fit2 = true;
+                                }
+                            }
+                            if (!fit1 && !fit2) {
+                                float curPx = origPx * 0.94f;
+                                for (int step = 0; step < 8; step++) {
+                                    if (step == 7 || curPx < floorPx) curPx = floorPx;
+                                    tp.setTextSize(curPx);
+                                    tp.setTextScaleX(1.0f);
+                                    if (TypographyNormalizer.fitsSingleLineStrictly(
+                                            str, tp, availW, spacingMult, spacingAdd, true, rtl)) {
+                                        targetPx = curPx;
+                                        fit1 = true;
+                                        break;
+                                    }
+                                    if (allowBreak) {
+                                        StaticLayout sl = TypographyNormalizer.buildStaticLayout(
+                                                str, tp, availW, Layout.Alignment.ALIGN_CENTER,
+                                                spacingMult, spacingAdd, true, 0, null, rtl);
+                                        if (sl.getLineCount() <= 2
+                                                && TypographyNormalizer.getMaxLineWidth(sl) <= availW
+                                                && !TypographyNormalizer.hasDisallowedWordSplit(sl, str, sg)) {
+                                            targetPx = curPx;
+                                            fit2 = true;
+                                            break;
+                                        }
+                                    }
+                                    if (curPx <= floorPx + 0.05f) break;
+                                    curPx = Math.max(floorPx, curPx * 0.94f);
+                                }
+                                if (!fit1 && !fit2) {
+                                    targetPx = floorPx;
+                                    if (sg == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK && !allowBreak) {
+                                        tp.setTextSize(floorPx);
+                                        float wf = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
+                                        float strictLimit = Math.max(1f, availW - 0.5f);
+                                        if (wf > strictLimit && wf > 1f) {
+                                            targetScaleX = Math.max(0.90f, Math.min(1.0f, strictLimit / wf));
+                                        }
+                                    }
+                                }
+                            }
+                            int solvedMaxLines = (fit1 || !allowBreak) ? 1 : 2;
+                            setMaxLinesIfChanged(labelTv, solvedMaxLines);
+                            if (Build.VERSION.SDK_INT >= 23 && solvedMaxLines >= 2) {
+                                if (labelTv.getBreakStrategy() != Layout.BREAK_STRATEGY_BALANCED) {
+                                    labelTv.setBreakStrategy(Layout.BREAK_STRATEGY_BALANCED);
+                                }
+                                if (labelTv.getHyphenationFrequency() != Layout.HYPHENATION_FREQUENCY_NONE) {
+                                    labelTv.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+                                }
+                            }
+                            if (!fit1 && !fit2) {
+                                setEllipsizeIfChanged(labelTv, TextUtils.TruncateAt.END);
+                            } else if (labelTv.getEllipsize() != null) {
+                                setEllipsizeIfChanged(labelTv, null);
+                            }
+                            if (Math.abs(labelTv.getTextScaleX() - targetScaleX) > 0.005f) {
+                                labelTv.setTextScaleX(targetScaleX);
+                            }
+                            if (Math.abs(labelTv.getTextSize() - targetPx) >= 0.4f) {
+                                labelTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetPx);
+                            }
+                            if (cardLp != null && cardLp.height > 0) {
+                                tp.setTextSize(targetPx);
+                                tp.setTextScaleX(targetScaleX);
+                                float lineH = TypographyNormalizer.measureFontMetricsLineHeight(tp);
+                                int iconH = iconIv.getHeight() > 0
+                                        ? iconIv.getHeight()
+                                        : (iconIv.getLayoutParams() != null && iconIv.getLayoutParams().height > 0
+                                                ? iconIv.getLayoutParams().height
+                                                : Math.round(22 * density));
+                                int neededH = Math.round(6 * density) + iconH + Math.round(2 * density)
+                                        + (int) Math.ceil(solvedMaxLines * lineH) + padB + Math.round(2 * density);
+                                int wantCardH = Math.max(minCardH, neededH);
+                                if (cardLp.height < wantCardH) {
+                                    cardLp.height = wantCardH;
+                                    card.setLayoutParams(cardLp);
+                                }
+                            }
                         }
                     }
-                    if (curPx <= floorPx + 0.05f) break;
-                    curPx = Math.max(floorPx, curPx * 0.94f);
-                }
-                if (!fit1 && !fit2) {
-                    targetPx = floorPx;
-                    if (sg == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK && !allowBreak) {
-                        tp.setTextSize(floorPx);
-                        float wf = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
-                        if (wf > availW + 0.5f && wf > 1f) {
-                            targetScaleX = Math.max(0.90f, Math.min(1.0f, availW / wf));
-                        }
-                    }
-                }
-            }
-            if (!fit1 && !fit2) {
-                setEllipsizeIfChanged(labelTv, TextUtils.TruncateAt.END);
-            } else if (labelTv.getEllipsize() != null) {
-                setEllipsizeIfChanged(labelTv, null);
-            }
-            if (Math.abs(labelTv.getTextScaleX() - targetScaleX) > 0.005f) {
-                labelTv.setTextScaleX(targetScaleX);
-            }
-            if (Math.abs(labelTv.getTextSize() - targetPx) >= 0.4f) {
-                labelTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, targetPx);
-            }
-                        }
-                    }
+                } else {
+                    setMaxLinesIfChanged(labelTv, 2);
                 }
                 return;
             }
@@ -4799,18 +4834,19 @@ public final class WorkspaceUiController {
             TypographyNormalizer.preparePaintForScript(tp, str, activeLoc, activeTf);
             tp.setTextScaleX(1.0f);
             tp.setTextSize(targetPx);
-            while (TypographyNormalizer.measureHarfBuzzWidth(str, tp) > availW + 0.5f && targetPx > minPx) {
+            float strictAvail = Math.max(1f, availW - 0.5f);
+            while (TypographyNormalizer.measureHarfBuzzWidth(str, tp) > strictAvail && targetPx > minPx) {
                 targetPx = Math.max(minPx, targetPx * 0.92f);
                 tp.setTextSize(targetPx);
             }
             float wAfter = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
-            if (wAfter > availW + 0.5f) {
+            if (wAfter > strictAvail) {
                 if (TypographyNormalizer.classifyScript(str) == TypographyNormalizer.SCRIPT_LATIN_CYRILLIC_GREEK
                         && wAfter > 1f) {
-                    float scaled = Math.max(0.90f, Math.min(1.0f, availW / wAfter));
+                    float scaled = Math.max(0.90f, Math.min(1.0f, strictAvail / wAfter));
                     tp.setTextScaleX(scaled);
                     targetScaleX = scaled;
-                    stillOverflows = TypographyNormalizer.measureHarfBuzzWidth(str, tp) > availW + 0.5f;
+                    stillOverflows = TypographyNormalizer.measureHarfBuzzWidth(str, tp) > strictAvail;
                 } else {
                     stillOverflows = true;
                 }
@@ -7035,9 +7071,16 @@ public final class WorkspaceUiController {
         return mutated;
     }
 
+    public static boolean isCanvasPolishToolGridLabel(TextView tv) {
+        return tv != null && tv.getTag(TAG_TOOL_GRID_ORIG_PX) != null && isCanvasPopupPolishActive();
+    }
+
     public static boolean isPhase2ManagedStripView(TextView tv) {
         if (tv == null) return false;
         if (tv.getTag(TypographyNormalizer.TAG_PHASE2_MANAGED_EPOCH) != null) {
+            return true;
+        }
+        if (isCanvasPolishToolGridLabel(tv)) {
             return true;
         }
         if (tv.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP) != null) {
