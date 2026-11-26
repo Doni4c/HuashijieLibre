@@ -9754,7 +9754,7 @@
     "新版": "Modern",
     "旧版（Ver3.0.0前）": "Legacy (Before V3.0.0)",
     "libre_opt_hide_canvas_popup_cloud": "Hide canvas popup cloud tab",
-    "libre_desc_hide_canvas_popup_cloud": "Hides cloud backup controls and the cloud tab inside the canvas settings popup. Turn off to show again.",
+    "libre_desc_hide_canvas_popup_cloud": "Hides cloud backup controls in the canvas settings popup and the cloud tab in image pickers. Turn off to show again.",
     "libre_opt_hide_drawer_vip": "Hide drawer VIP banner",
     "libre_desc_hide_drawer_vip": "Hides the VIP membership banner in the navigation drawer. Turn off to show again.",
     "libre_opt_block_umeng_sdk": "Disable Umeng analytics",

@@ -9754,7 +9754,7 @@
     "新版": "Bản mới",
     "旧版（Ver3.0.0前）": "Bản cũ (trước V3.0.0)",
     "libre_opt_hide_canvas_popup_cloud": "Ẩn mục đám mây trong cài đặt vẽ",
-    "libre_desc_hide_canvas_popup_cloud": "Ẩn nút sao lưu đám mây và thẻ đám mây trong bảng cài đặt trên màn hình vẽ. Tắt để hiện lại.",
+    "libre_desc_hide_canvas_popup_cloud": "Ẩn nút sao lưu đám mây trong bảng cài đặt vẽ và thẻ Kho mây trong trình chọn ảnh. Tắt để hiện lại.",
     "libre_opt_hide_drawer_vip": "Ẩn biểu ngữ hội viên ở menu bên",
     "libre_desc_hide_drawer_vip": "Ẩn thẻ giới thiệu hội viên trong thanh menu bên trái. Tắt để hiện lại.",
     "libre_opt_block_umeng_sdk": "Chặn phân tích Umeng",

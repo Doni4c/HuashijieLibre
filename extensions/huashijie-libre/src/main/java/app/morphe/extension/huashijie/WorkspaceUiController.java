@@ -98,6 +98,13 @@ public final class WorkspaceUiController {
     private static final int TAG_HSV_PLAN_KEY = 0x7e09865f;
     private static final int TAG_HSV_PLAN = 0x7e098660;
     private static final int TAG_REPLAY_ORIG_TOP_DRAWABLE_BOUNDS = 0x7e098661;
+    private static final int TAG_ORIG_TOOL_GRID_CARD_H = 0x7e098662;
+    private static final int TAG_TOOL_GRID_UNIFORM_H = 0x7e098663;
+    private static final int TAG_LAST_TOOL_GRID_UNIFORM_SIG = 0x7e098664;
+    private static final int TAG_FINISH_PILL_MANAGED = 0x7e098665;
+    private static final int TAG_FINISH_PILL_ORIG_STATE = 0x7e098666;
+    private static final int TAG_PICKER_NAV_ORIG_STATE = 0x7e098667;
+    private static final int TAG_PICKER_NAV_LAST_SIG = 0x7e098668;
     private static final int SYNTHETIC_SWITCH_ID_BASE = 0x7e098540;
 
     private static final Pattern PATTERN_DYNAMIC_NUMERIC =
@@ -2447,9 +2454,17 @@ public final class WorkspaceUiController {
                     card.setPadding(card.getPaddingLeft(), 0, card.getPaddingRight(), 0);
                 }
                 ViewGroup.LayoutParams cardLp = card.getLayoutParams();
+                if (cardLp != null && cardLp.height > 0 && card.getTag(TAG_ORIG_TOOL_GRID_CARD_H) == null) {
+                    card.setTag(TAG_ORIG_TOOL_GRID_CARD_H, Integer.valueOf(cardLp.height));
+                }
                 int minCardH = Math.round(64 * density);
-                if (cardLp != null && cardLp.height > 0 && cardLp.height < minCardH) {
-                    cardLp.height = minCardH;
+                ViewGroup rvParent = (card.getParent() instanceof ViewGroup) ? (ViewGroup) card.getParent() : null;
+                int parentUniformH = (rvParent != null && rvParent.getTag(TAG_TOOL_GRID_UNIFORM_H) instanceof Integer)
+                        ? (Integer) rvParent.getTag(TAG_TOOL_GRID_UNIFORM_H)
+                        : 0;
+                int initCardH = Math.max(minCardH, parentUniformH);
+                if (cardLp != null && cardLp.height > 0 && cardLp.height < initCardH) {
+                    cardLp.height = initCardH;
                     card.setLayoutParams(cardLp);
                 }
 
@@ -2638,8 +2653,22 @@ public final class WorkspaceUiController {
                                 int neededH = Math.round(6 * density) + iconH + Math.round(2 * density)
                                         + (int) Math.ceil(solvedMaxLines * lineH) + padB + Math.round(2 * density);
                                 int wantCardH = Math.max(minCardH, neededH);
-                                if (cardLp.height < wantCardH) {
-                                    cardLp.height = wantCardH;
+                                ViewGroup toolGridRv = (card.getParent() instanceof ViewGroup)
+                                        ? (ViewGroup) card.getParent()
+                                        : null;
+                                int curUniformH = (toolGridRv != null && toolGridRv.getTag(TAG_TOOL_GRID_UNIFORM_H) instanceof Integer)
+                                        ? (Integer) toolGridRv.getTag(TAG_TOOL_GRID_UNIFORM_H)
+                                        : minCardH;
+                                int targetCardH = Math.max(curUniformH, wantCardH);
+                                if (toolGridRv != null && targetCardH > curUniformH) {
+                                    toolGridRv.setTag(TAG_TOOL_GRID_UNIFORM_H, Integer.valueOf(targetCardH));
+                                    syncLeftToolGridCardsHeight(toolGridRv, targetCardH);
+                                    invalidateRecyclerSpanAssignments(toolGridRv);
+                                } else if (toolGridRv != null && toolGridRv.getTag(TAG_TOOL_GRID_UNIFORM_H) == null) {
+                                    toolGridRv.setTag(TAG_TOOL_GRID_UNIFORM_H, Integer.valueOf(targetCardH));
+                                }
+                                if (cardLp.height != targetCardH) {
+                                    cardLp.height = targetCardH;
                                     card.setLayoutParams(cardLp);
                                 }
                             }
@@ -7080,7 +7109,8 @@ public final class WorkspaceUiController {
         if (tv.getTag(TypographyNormalizer.TAG_PHASE2_MANAGED_EPOCH) != null) {
             return true;
         }
-        if (isCanvasPolishToolGridLabel(tv)) {
+        if (isCanvasPolishToolGridLabel(tv)
+                || Boolean.TRUE.equals(tv.getTag(TAG_FINISH_PILL_MANAGED))) {
             return true;
         }
         if (tv.getTag(TypographyNormalizer.TAG_DIALOG_TITLE_SNAP) != null) {
@@ -7415,9 +7445,11 @@ public final class WorkspaceUiController {
                     ? origTwoColW
                     : Math.min(Math.round(safeW * 0.78f), chromeW + colW * targetSpan + extraRightPad);
 
+            boolean spanChanged = false;
             if (setSpanMethod != null && layoutMgr != null && curSpan != targetSpan) {
                 try {
                     setSpanMethod.invoke(layoutMgr, targetSpan);
+                    spanChanged = true;
                     rv.requestLayout();
                 } catch (Throwable ignored) {}
             } else if (setSpanMethod == null) {
@@ -7439,25 +7471,20 @@ public final class WorkspaceUiController {
                     bubbleView.setLayoutParams(bLpW);
                 }
             }
+            int targetRvW = Math.max(colW, desiredPopupW - chromeW);
             if (rv.getLayoutParams() != null && rv.getLayoutParams().width > 0 && desiredPopupW > 0) {
                 ViewGroup.LayoutParams rvLpW = rv.getLayoutParams();
-                int targetRvW = Math.max(colW, desiredPopupW - chromeW);
                 if (rvLpW.width != targetRvW) {
                     rvLpW.width = targetRvW;
                     rv.setLayoutParams(rvLpW);
                 }
             }
 
-            int rowH = 0;
-            int sampleMax = Math.min(childCount, 4);
-            for (int i = 0; i < sampleMax; i++) {
-                View ch = rvGroup.getChildAt(i);
-                if (ch != null && ch.getHeight() > rowH) {
-                    rowH = ch.getHeight();
-                }
-            }
+            int effectiveRvW = targetRvW > 0 ? targetRvW : rv.getWidth();
+            int effectiveColW = Math.max(colW, effectiveRvW / Math.max(1, targetSpan));
+            int rowH = equalizeLeftToolGridChildren(rvGroup, targetSpan, effectiveColW, layoutMgr, spanChanged, density);
             if (rowH <= 0) {
-                rowH = Math.round(58.5f * density);
+                rowH = Math.round(64f * density);
             }
 
             int itemCount = childCount;
@@ -8449,5 +8476,458 @@ public final class WorkspaceUiController {
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    private static void syncLeftToolGridCardsHeight(ViewGroup rvGroup, int targetH) {
+        if (rvGroup == null || targetH <= 0) return;
+        for (int i = 0; i < rvGroup.getChildCount(); i++) {
+            View ch = rvGroup.getChildAt(i);
+            if (ch == null) continue;
+            ViewGroup.LayoutParams lp = ch.getLayoutParams();
+            if (lp != null && lp.height > 0 && lp.height != targetH) {
+                if (ch.getTag(TAG_ORIG_TOOL_GRID_CARD_H) == null) {
+                    ch.setTag(TAG_ORIG_TOOL_GRID_CARD_H, Integer.valueOf(lp.height));
+                }
+                lp.height = targetH;
+                ch.setLayoutParams(lp);
+            }
+        }
+    }
+
+    private static void invalidateRecyclerSpanAssignments(ViewGroup rvGroup) {
+        if (rvGroup == null) return;
+        try {
+            Method getLm = rvGroup.getClass().getMethod("getLayoutManager");
+            invalidateStaggeredSpanAssignments(getLm.invoke(rvGroup));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void invalidateStaggeredSpanAssignments(Object layoutMgr) {
+        if (layoutMgr == null) return;
+        try {
+            Method m = layoutMgr.getClass().getMethod("invalidateSpanAssignments");
+            m.invoke(layoutMgr);
+        } catch (Throwable ignored) {}
+    }
+
+    private static int measureToolGridCardNeededH(View card, int colW, float density) {
+        int minCardH = Math.round(64 * density);
+        if (!(card instanceof ViewGroup)) return minCardH;
+        ViewGroup vg = (ViewGroup) card;
+        ImageView iconIv = null;
+        TextView labelTv = null;
+        for (int i = 0; i < vg.getChildCount(); i++) {
+            View c = vg.getChildAt(i);
+            if (c instanceof ImageView && iconIv == null) iconIv = (ImageView) c;
+            else if (c instanceof TextView && labelTv == null) labelTv = (TextView) c;
+        }
+        if (labelTv == null || labelTv.getText() == null || labelTv.getText().length() == 0) {
+            return Math.max(minCardH, card.getHeight());
+        }
+        int iconH = (iconIv != null && iconIv.getHeight() > 0)
+                ? iconIv.getHeight()
+                : (iconIv != null && iconIv.getLayoutParams() != null && iconIv.getLayoutParams().height > 0
+                        ? iconIv.getLayoutParams().height
+                        : Math.round(22 * density));
+        int padH = Math.max(Math.round(4 * density), labelTv.getPaddingLeft() + labelTv.getPaddingRight());
+        int availW = Math.max(1, colW - padH - card.getPaddingLeft() - card.getPaddingRight());
+        TextPaint tp = TypographyNormalizer.getScratchTextPaint(labelTv.getPaint());
+        Locale loc = TranslationEngine.getActiveLocale();
+        Typeface tf = labelTv.getContext() != null ? UIFontManager.getActiveTypeface(labelTv.getContext()) : null;
+        TypographyNormalizer.preparePaintForScript(tp, labelTv.getText().toString(), loc, tf);
+        tp.setTextSize(labelTv.getTextSize());
+        tp.setTextScaleX(labelTv.getTextScaleX());
+        String txt = labelTv.getText().toString();
+        float singleW = TypographyNormalizer.measureHarfBuzzWidth(txt, tp);
+        int lines = singleW > availW + 0.5f ? Math.min(2, Math.max(1, labelTv.getLineCount())) : 1;
+        if (singleW > availW + 0.5f && lines == 1) {
+            lines = 2;
+        }
+        float lineH = TypographyNormalizer.measureFontMetricsLineHeight(tp);
+        int padB = Math.max(Math.round(4 * density), labelTv.getPaddingBottom());
+        int needed = Math.round(6 * density) + iconH + Math.round(2 * density)
+                + (int) Math.ceil(lines * lineH) + padB + Math.round(2 * density);
+        return Math.max(minCardH, Math.max(needed, card.getHeight()));
+    }
+
+    /**
+     * Equalizes all card heights inside the Paint left-tool StaggeredGridLayoutManager so
+     * multi-column rows never drift and trailing items pack strictly left-to-right.
+     */
+    private static int equalizeLeftToolGridChildren(
+            ViewGroup rvGroup, int targetSpan, int colW, Object layoutMgr, boolean spanChanged, float density) {
+        if (rvGroup == null) return Math.round(64 * density);
+        int childCount = rvGroup.getChildCount();
+        int uniformH = Math.round(64 * density);
+        if (rvGroup.getTag(TAG_TOOL_GRID_UNIFORM_H) instanceof Integer) {
+            uniformH = Math.max(uniformH, (Integer) rvGroup.getTag(TAG_TOOL_GRID_UNIFORM_H));
+        }
+        for (int i = 0; i < childCount; i++) {
+            View ch = rvGroup.getChildAt(i);
+            if (ch == null) continue;
+            uniformH = Math.max(uniformH, measureToolGridCardNeededH(ch, colW, density));
+        }
+        rvGroup.setTag(TAG_TOOL_GRID_UNIFORM_H, Integer.valueOf(uniformH));
+
+        boolean anyMutated = false;
+        for (int i = 0; i < childCount; i++) {
+            View ch = rvGroup.getChildAt(i);
+            if (ch == null) continue;
+            ViewGroup.LayoutParams lp = ch.getLayoutParams();
+            if (lp != null && lp.height != uniformH) {
+                if (lp.height > 0 && ch.getTag(TAG_ORIG_TOOL_GRID_CARD_H) == null) {
+                    ch.setTag(TAG_ORIG_TOOL_GRID_CARD_H, Integer.valueOf(lp.height));
+                }
+                lp.height = uniformH;
+                ch.setLayoutParams(lp);
+                anyMutated = true;
+            }
+        }
+        String uSig = targetSpan + "|" + uniformH + "|" + childCount;
+        if (spanChanged || anyMutated || !uSig.equals(rvGroup.getTag(TAG_LAST_TOOL_GRID_UNIFORM_SIG))) {
+            rvGroup.setTag(TAG_LAST_TOOL_GRID_UNIFORM_SIG, uSig);
+            invalidateStaggeredSpanAssignments(layoutMgr);
+            rvGroup.requestLayout();
+        }
+        return uniformH;
+    }
+
+    /**
+     * Aligns LocalImageActivity navigation tabs and Finish button on a shared baseline with safe horizontal gap,
+     * and expands fixed-width rounded finish pills (ImagePreviewActivity / SearchActivity) so labels fit on one line.
+     */
+    public static boolean optimizeActivityFinishAndPickerChrome(View root, boolean active) {
+        if (root == null) return false;
+        boolean changed = false;
+        try {
+            changed |= polishLocalImagePickerNav(root, active);
+            changed |= polishFixedFinishPillButtons(root, active);
+        } catch (Throwable ignored) {}
+        return changed;
+    }
+
+    private static boolean polishLocalImagePickerNav(View root, boolean active) {
+        View navRoot = findView(root, "navigation_root", 0x7f0909fb);
+        if (!(navRoot instanceof RelativeLayout)) return false;
+        View back = findView(navRoot, "navigation_back", 0x7f0909f9);
+        View okView = findView(navRoot, "okbtn", 0x7f090a1c);
+        View mi = findView(navRoot, "magic_indicator", 0x7f090864);
+        if (back == null || !(okView instanceof TextView) || mi == null) return false;
+
+        TextView okTv = (TextView) okView;
+        ViewGroup.LayoutParams okRawLp = okTv.getLayoutParams();
+        ViewGroup.LayoutParams miRawLp = mi.getLayoutParams();
+        if (!(okRawLp instanceof RelativeLayout.LayoutParams) || !(miRawLp instanceof RelativeLayout.LayoutParams)) {
+            return false;
+        }
+        RelativeLayout.LayoutParams okLp = (RelativeLayout.LayoutParams) okRawLp;
+        RelativeLayout.LayoutParams miLp = (RelativeLayout.LayoutParams) miRawLp;
+
+        Object origTag = navRoot.getTag(TAG_PICKER_NAV_ORIG_STATE);
+        int[] origState;
+        if (origTag instanceof int[]) {
+            origState = (int[]) origTag;
+        } else {
+            int okCenterInParent = okLp.getRules()[RelativeLayout.CENTER_IN_PARENT];
+            int okCenterVert = okLp.getRules()[RelativeLayout.CENTER_VERTICAL];
+            int okAlignRight = okLp.getRules()[RelativeLayout.ALIGN_PARENT_RIGHT];
+            int miCenterH = miLp.getRules()[RelativeLayout.CENTER_HORIZONTAL];
+            int miAlignBottom = miLp.getRules()[RelativeLayout.ALIGN_PARENT_BOTTOM];
+            origState = new int[]{
+                    okTv.getPaddingLeft(), okTv.getPaddingTop(), okTv.getPaddingRight(), okTv.getPaddingBottom(),
+                    okLp.topMargin, okLp.rightMargin, okCenterInParent, okCenterVert, okAlignRight,
+                    miLp.width, miLp.leftMargin, miLp.rightMargin, miCenterH, miAlignBottom
+            };
+            navRoot.setTag(TAG_PICKER_NAV_ORIG_STATE, origState);
+        }
+
+        if (!active) {
+            if (navRoot.getTag(TAG_PICKER_NAV_LAST_SIG) == null) return false;
+            navRoot.setTag(TAG_PICKER_NAV_LAST_SIG, null);
+            okTv.setSingleLine(false);
+            okTv.setPadding(origState[0], origState[1], origState[2], origState[3]);
+            okLp.topMargin = origState[4];
+            okLp.rightMargin = origState[5];
+            if (Build.VERSION.SDK_INT >= 17) okLp.setMarginEnd(origState[5]);
+            okLp.addRule(RelativeLayout.ALIGN_PARENT_TOP, 0);
+            okLp.addRule(RelativeLayout.CENTER_IN_PARENT, origState[6]);
+            okLp.addRule(RelativeLayout.CENTER_VERTICAL, origState[7]);
+            okLp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT, origState[8]);
+            okTv.setLayoutParams(okLp);
+
+            miLp.width = origState[9];
+            miLp.leftMargin = origState[10];
+            miLp.rightMargin = origState[11];
+            miLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT, 0);
+            miLp.addRule(RelativeLayout.CENTER_HORIZONTAL, origState[12]);
+            miLp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, origState[13]);
+            mi.setLayoutParams(miLp);
+            return true;
+        }
+
+        int navW = navRoot.getWidth();
+        int navH = navRoot.getHeight();
+        if (navW <= 0 || navH <= 0) return false;
+        DisplayMetrics dm = navRoot.getResources().getDisplayMetrics();
+        float density = dm.density > 0f ? dm.density : 2f;
+
+        List<TextView> visibleTabTvs = new ArrayList<>();
+        collectVisibleTabTitleViews(mi, visibleTabTvs);
+        if (visibleTabTvs.isEmpty()) return false;
+
+        TextView firstTab = visibleTabTvs.get(0);
+        if (firstTab.getHeight() <= 0 || okTv.getHeight() <= 0) return false;
+
+        boolean changed = false;
+        if (!okTv.getIncludeFontPadding()) {
+            okTv.setIncludeFontPadding(true);
+            changed = true;
+        }
+        okTv.setSingleLine(true);
+        okTv.setMaxLines(1);
+        okTv.setEllipsize(null);
+
+        int wantPadH = Math.max(origState[0], Math.round(6f * density));
+        int wantPadV = origState[1];
+        if (okTv.getPaddingLeft() != wantPadH || okTv.getPaddingTop() != wantPadV
+                || okTv.getPaddingRight() != wantPadH || okTv.getPaddingBottom() != wantPadV) {
+            okTv.setPadding(wantPadH, wantPadV, wantPadH, wantPadV);
+            changed = true;
+        }
+
+        // Align okbtn baseline directly with MagicIndicator tab title baseline inside navigation_root.
+        int tabTopInNav = computeTopRelativeToAncestor(firstTab, navRoot);
+        int tabBase = firstTab.getBaseline() > 0 ? firstTab.getBaseline() : Math.round(firstTab.getHeight() * 0.78f);
+        int okBase = okTv.getBaseline() > 0 ? okTv.getBaseline() : Math.round(okTv.getHeight() * 0.78f);
+        int targetOkTop = TypographyNormalizer.clamp(
+                (tabTopInNav + tabBase) - okBase,
+                0,
+                Math.max(0, navH - okTv.getHeight()));
+        int wantOkRightMargin = Math.max(origState[5], Math.round(12f * density));
+
+        String okText = okTv.getText() != null ? okTv.getText().toString() : "";
+        TextPaint okTp = TypographyNormalizer.getScratchTextPaint(okTv.getPaint());
+        Locale loc = TranslationEngine.getActiveLocale();
+        Typeface tf = okTv.getContext() != null ? UIFontManager.getActiveTypeface(okTv.getContext()) : null;
+        TypographyNormalizer.preparePaintForScript(okTp, okText, loc, tf);
+        int okTextW = (int) Math.ceil(TypographyNormalizer.measureHarfBuzzWidth(okText, okTp));
+        int okNeededW = Math.max(okTv.getWidth(), okTextW + wantPadH * 2 + Math.round(2f * density));
+
+        int backRight = (back.getVisibility() == View.VISIBLE && back.getRight() > 0)
+                ? back.getRight()
+                : Math.round(42f * density);
+        int leftLimit = backRight + Math.round(6f * density);
+        int gap = Math.round(10f * density);
+        int okLeftEdge = navW - wantOkRightMargin - okNeededW;
+        int rightLimit = Math.max(leftLimit + Math.round(80f * density), okLeftEdge - gap);
+
+        int origMiW = origState[9] > 0 ? origState[9] : Math.round(220f * density);
+        int availSpanW = Math.max(Math.round(80f * density), rightLimit - leftLimit);
+        int tabCount = visibleTabTvs.size();
+        int targetMiW;
+        int targetMiLeft;
+        if (tabCount <= 1) {
+            int maxHalfFromMid = Math.max(Math.round(40f * density),
+                    Math.min(navW / 2 - leftLimit, rightLimit - navW / 2));
+            targetMiW = Math.min(availSpanW, Math.min(origMiW, maxHalfFromMid * 2));
+            targetMiLeft = TypographyNormalizer.clamp((navW - targetMiW) / 2, leftLimit, Math.max(leftLimit, rightLimit - targetMiW));
+        } else {
+            int neededTabsW = 0;
+            for (int i = 0; i < tabCount; i++) {
+                TextView tTv = visibleTabTvs.get(i);
+                String tStr = tTv.getText() != null ? tTv.getText().toString() : "";
+                TextPaint tTp = TypographyNormalizer.getScratchTextPaint(tTv.getPaint());
+                TypographyNormalizer.preparePaintForScript(tTp, tStr, loc, tf);
+                int tw = (int) Math.ceil(TypographyNormalizer.measureHarfBuzzWidth(tStr, tTp));
+                neededTabsW += tw + Math.round(32f * density);
+            }
+            int eachTabW = Math.max(origMiW / 2, neededTabsW / tabCount);
+            targetMiW = Math.min(availSpanW, Math.max(origMiW, eachTabW * tabCount));
+            targetMiLeft = leftLimit + Math.max(0, (availSpanW - targetMiW) / 2);
+        }
+
+        String navSig = navW + "|" + navH + "|" + tabCount + "|" + okText + "|"
+                + targetOkTop + "|" + wantOkRightMargin + "|" + targetMiLeft + "|" + targetMiW;
+        if (navSig.equals(navRoot.getTag(TAG_PICKER_NAV_LAST_SIG))) {
+            return changed;
+        }
+        navRoot.setTag(TAG_PICKER_NAV_LAST_SIG, navSig);
+
+        okLp.addRule(RelativeLayout.CENTER_IN_PARENT, 0);
+        okLp.addRule(RelativeLayout.CENTER_VERTICAL, 0);
+        okLp.addRule(RelativeLayout.ALIGN_PARENT_TOP, RelativeLayout.TRUE);
+        okLp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT, RelativeLayout.TRUE);
+        okLp.topMargin = targetOkTop;
+        okLp.rightMargin = wantOkRightMargin;
+        if (Build.VERSION.SDK_INT >= 17) okLp.setMarginEnd(wantOkRightMargin);
+        okTv.setLayoutParams(okLp);
+
+        miLp.addRule(RelativeLayout.CENTER_HORIZONTAL, 0);
+        miLp.addRule(RelativeLayout.LEFT_OF, 0);
+        miLp.addRule(RelativeLayout.RIGHT_OF, 0);
+        miLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT, RelativeLayout.TRUE);
+        miLp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, RelativeLayout.TRUE);
+        miLp.width = targetMiW;
+        miLp.leftMargin = targetMiLeft;
+        miLp.rightMargin = 0;
+        if (Build.VERSION.SDK_INT >= 17) {
+            miLp.setMarginStart(targetMiLeft);
+            miLp.setMarginEnd(0);
+        }
+        mi.setLayoutParams(miLp);
+        return true;
+    }
+
+    private static void collectVisibleTabTitleViews(View v, List<TextView> out) {
+        if (v == null || v.getVisibility() != View.VISIBLE) return;
+        if (v instanceof TextView) {
+            CharSequence cs = ((TextView) v).getText();
+            if (cs != null && cs.length() > 0) {
+                out.add((TextView) v);
+            }
+            return;
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                collectVisibleTabTitleViews(vg.getChildAt(i), out);
+            }
+        }
+    }
+
+    private static int computeTopRelativeToAncestor(View v, View ancestor) {
+        int top = 0;
+        View cur = v;
+        for (int depth = 0; cur != null && cur != ancestor && depth < 10; depth++) {
+            top += cur.getTop();
+            ViewParent p = cur.getParent();
+            cur = (p instanceof View) ? (View) p : null;
+        }
+        return top;
+    }
+
+    private static boolean polishFixedFinishPillButtons(View root, boolean active) {
+        boolean changed = false;
+        View tvFinish = findView(root, "tv_finish", 0x7f090e58);
+        if (tvFinish instanceof TextView) {
+            changed |= adjustFixedActionPillButton((TextView) tvFinish, active);
+        }
+        View tvComplete = findView(root, "tv_complete", 0x7f090e0e);
+        if (tvComplete instanceof TextView) {
+            changed |= adjustFixedActionPillButton((TextView) tvComplete, active);
+        }
+        return changed;
+    }
+
+    private static boolean adjustFixedActionPillButton(TextView tv, boolean active) {
+        if (tv == null || tv.getVisibility() == View.GONE) return false;
+        ViewGroup.LayoutParams lp = tv.getLayoutParams();
+        if (lp == null) return false;
+        Object origObj = tv.getTag(TAG_FINISH_PILL_ORIG_STATE);
+        int[] orig;
+        if (origObj instanceof int[]) {
+            orig = (int[]) origObj;
+        } else {
+            int minW = Build.VERSION.SDK_INT >= 16 ? tv.getMinimumWidth() : 0;
+            orig = new int[]{
+                    lp.width, lp.height,
+                    tv.getPaddingLeft(), tv.getPaddingTop(), tv.getPaddingRight(), tv.getPaddingBottom(),
+                    minW, tv.getMaxLines(), tv.getIncludeFontPadding() ? 1 : 0
+            };
+            tv.setTag(TAG_FINISH_PILL_ORIG_STATE, orig);
+        }
+
+        if (!active) {
+            if (!Boolean.TRUE.equals(tv.getTag(TAG_FINISH_PILL_MANAGED))) return false;
+            tv.setTag(TAG_FINISH_PILL_MANAGED, null);
+            lp.width = orig[0];
+            lp.height = orig[1];
+            tv.setLayoutParams(lp);
+            tv.setPadding(orig[2], orig[3], orig[4], orig[5]);
+            tv.setMinimumWidth(orig[6]);
+            tv.setMinWidth(orig[6]);
+            tv.setSingleLine(false);
+            tv.setMaxLines(orig[7] > 0 ? orig[7] : Integer.MAX_VALUE);
+            tv.setIncludeFontPadding(orig[8] == 1);
+            return true;
+        }
+
+        if (orig[0] <= 0) return false;
+        DisplayMetrics dm = tv.getResources().getDisplayMetrics();
+        float density = dm.density > 0f ? dm.density : 2f;
+
+        // Only expand when the original fixed pill width cannot comfortably fit single-line text + optical padding.
+        CharSequence cs = tv.getText();
+        String str = cs != null ? cs.toString() : "";
+        if (str.isEmpty()) return false;
+        TextPaint tp = TypographyNormalizer.getScratchTextPaint(tv.getPaint());
+        TypographyNormalizer.preparePaintForScript(
+                tp, str, TranslationEngine.getActiveLocale(),
+                tv.getContext() != null ? UIFontManager.getActiveTypeface(tv.getContext()) : null);
+        float textW = TypographyNormalizer.measureHarfBuzzWidth(str, tp);
+
+        int padH = Math.max(Math.max(orig[2], orig[4]), Math.round(12f * density));
+        int minH = Math.max(orig[1] > 0 ? orig[1] : 0, Math.round(30f * density));
+        int maxAvailW = Integer.MAX_VALUE;
+        if (tv.getParent() instanceof ViewGroup) {
+            ViewGroup pVg = (ViewGroup) tv.getParent();
+            int pw = pVg.getWidth() - pVg.getPaddingLeft() - pVg.getPaddingRight();
+            if (pw > 0) {
+                int rightMargin = (lp instanceof ViewGroup.MarginLayoutParams)
+                        ? ((ViewGroup.MarginLayoutParams) lp).rightMargin : 0;
+                int leftUsed = 0;
+                for (int i = 0; i < pVg.getChildCount(); i++) {
+                    View sib = pVg.getChildAt(i);
+                    if (sib == null || sib == tv || sib.getVisibility() == View.GONE) continue;
+                    if (sib.getRight() > 0 && sib.getRight() <= tv.getLeft() + Math.round(8f * density)) {
+                        leftUsed = Math.max(leftUsed, sib.getRight());
+                    }
+                }
+                maxAvailW = Math.max(orig[0], pw - rightMargin - leftUsed - Math.round(12f * density));
+            }
+        }
+
+        boolean changed = false;
+        if (!Boolean.TRUE.equals(tv.getTag(TAG_FINISH_PILL_MANAGED))) {
+            tv.setTag(TAG_FINISH_PILL_MANAGED, Boolean.TRUE);
+            changed = true;
+        }
+        int targetGrav = Gravity.CENTER;
+        if (tv.getGravity() != targetGrav) {
+            tv.setGravity(targetGrav);
+            changed = true;
+        }
+        if (!tv.getIncludeFontPadding()) {
+            tv.setIncludeFontPadding(true);
+            changed = true;
+        }
+        if (tv.getMaxLines() != 1) {
+            tv.setSingleLine(true);
+            tv.setMaxLines(1);
+            tv.setEllipsize(null);
+            changed = true;
+        }
+        if (tv.getPaddingLeft() != padH || tv.getPaddingRight() != padH) {
+            tv.setPadding(padH, orig[3], padH, orig[5]);
+            changed = true;
+        }
+        if (Build.VERSION.SDK_INT >= 16 && tv.getMinimumWidth() != orig[0]) {
+            tv.setMinimumWidth(orig[0]);
+            tv.setMinWidth(orig[0]);
+            changed = true;
+        }
+        if (maxAvailW < Integer.MAX_VALUE && tv.getMaxWidth() != maxAvailW) {
+            tv.setMaxWidth(maxAvailW);
+            changed = true;
+        }
+        boolean needsExpand = lp.width != ViewGroup.LayoutParams.WRAP_CONTENT
+                && (textW + padH * 2f > lp.width - 1f);
+        if (needsExpand || lp.width != ViewGroup.LayoutParams.WRAP_CONTENT || lp.height < minH) {
+            lp.width = ViewGroup.LayoutParams.WRAP_CONTENT;
+            lp.height = minH;
+            tv.setLayoutParams(lp);
+            changed = true;
+        }
+        return changed;
     }
 }

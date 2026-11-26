@@ -1329,6 +1329,48 @@ internal object MultiVersionResolvers {
             it.sourceFile == "ShareBitmapWrapper.java" && !it.type.contains('$')
         }
 
+    internal fun resolveLocalImageActivityClass(classes: Iterable<ClassDef>): ClassDef =
+        classes.resolveSingleClass("LocalImageActivity") {
+            it.type == "Lnet/huanci/hsjpro/activities/LocalImageActivity;"
+        }
+
+    internal fun resolveLocalImageShowCloudMethod(
+        classes: Iterable<ClassDef>,
+        localImageActivity: ClassDef,
+    ): Method {
+        val pagerAdapterClasses = classes.filter { cls ->
+            cls.type.startsWith("Lnet/huanci/hsjpro/activities/LocalImageActivity\$") &&
+                cls.methods.any { m -> m.name == "getCount" && m.returnType == "I" && m.parameterTypes.isEmpty() }
+        }
+        check(pagerAdapterClasses.size == 1) {
+            "Expected 1 LocalImageActivity FragmentPagerAdapter with getCount()I, found ${pagerAdapterClasses.size}"
+        }
+        val getCountMethod = pagerAdapterClasses[0].resolveSingleMethod("LocalImageActivity\$Adapter.getCount") {
+            it.name == "getCount" && it.returnType == "I" && it.parameterTypes.isEmpty()
+        }
+        val calledShowCloudNames = getCountMethod.instructionsOrEmpty().mapNotNull { inst ->
+            val ref = (inst as? ReferenceInstruction)?.reference as? MethodReference ?: return@mapNotNull null
+            if (ref.definingClass == localImageActivity.type &&
+                ref.returnType == "Z" &&
+                ref.parameterTypes.map { p -> p.toString() } == listOf(localImageActivity.type)
+            ) {
+                ref.name
+            } else {
+                null
+            }
+        }.distinct()
+        check(calledShowCloudNames.size == 1) {
+            "Expected 1 static (LocalImageActivity)Z helper called by getCount()I, found $calledShowCloudNames"
+        }
+        val targetName = calledShowCloudNames[0]
+        return localImageActivity.resolveSingleMethod("LocalImageActivity.showCloudMethod") { m ->
+            AccessFlags.STATIC.isSet(m.accessFlags) &&
+                m.name == targetName &&
+                m.returnType == "Z" &&
+                m.paramsList() == listOf(localImageActivity.type)
+        }
+    }
+
     internal fun BytecodePatchContext.allClasses(): List<ClassDef> {
         val list = mutableListOf<ClassDef>()
         classDefForEach { list += it }

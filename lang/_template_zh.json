@@ -9754,7 +9754,7 @@
     "新版": "新版",
     "旧版（Ver3.0.0前）": "旧版（Ver3.0.0前）",
     "libre_opt_hide_canvas_popup_cloud": "隐藏画布设置云同步页",
-    "libre_desc_hide_canvas_popup_cloud": "在画布设置弹窗中隐藏云存档按钮和云图分页。关闭后恢复显示。",
+    "libre_desc_hide_canvas_popup_cloud": "在画布设置弹窗和图片选择器中隐藏云存档按钮及云盘分页。关闭后恢复显示。",
     "libre_opt_hide_drawer_vip": "隐藏侧边栏会员横幅",
     "libre_desc_hide_drawer_vip": "隐藏首页侧边栏中的会员推广横幅。关闭后恢复显示。",
     "libre_opt_block_umeng_sdk": "停用友盟统计组件",

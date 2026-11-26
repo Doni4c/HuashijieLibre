@@ -95,6 +95,7 @@ public final class TranslationEngine {
     public static final int OP_HIDE_VIP_DRAWER = 15;
     public static final int OP_HIDE_BRUSH_LIBRARY_SHOP = 16;
     public static final int OP_HIDE_TIMELAPSE_EXPORT_SOCIAL = 17;
+    public static final int OP_IS_HIDE_CANVAS_POPUP_CLOUD = 18;
     public static final int OP_SHOULD_ALLOW_BRUSH_EDITING = 50;
     public static final int OP_ENSURE_BRUSH_PACKAGE_LIST = 51;
     public static final int OP_SYNC_DRAWER_ACCOUNT_VISIBILITY = 52;
@@ -432,6 +433,8 @@ public final class TranslationEngine {
                     return null;
                 case OP_IS_HIDE_TOPBAR_CLOUD:
                     return LibreConfig.isFeatureActive(LibreConfig.KEY_HIDE_TOPBAR_CLOUD) ? Boolean.TRUE : null;
+                case OP_IS_HIDE_CANVAS_POPUP_CLOUD:
+                    return LibreConfig.isFeatureActive(LibreConfig.KEY_HIDE_CANVAS_POPUP_CLOUD) ? Boolean.TRUE : null;
                 case OP_HIDE_BRUSH_SHOP:
                     if (arg instanceof View) {
                         WorkspaceUiController.hideBrushShopIfEnabled((View) arg);
@@ -1469,6 +1472,7 @@ public final class TranslationEngine {
             WorkspaceUiController.compactPaintSettingsScrollArea(rootView);
         }
         boolean changed = false;
+        changed |= WorkspaceUiController.optimizeActivityFinishAndPickerChrome(rootView, fitActive);
         if (fitActive && isPopupOrDialogRoot(rootView)) {
             changed |= WorkspaceUiController.normalizeDialogTitles(rootView);
         }
@@ -3780,6 +3784,7 @@ public final class TranslationEngine {
             WorkspaceUiController.centerAllIconButtonsRecursively(rootView);
         }
         changed |= translateViewHierarchyTracked(rootView);
+        changed |= WorkspaceUiController.optimizeActivityFinishAndPickerChrome(rootView, fitActive);
         if (!fitActive) {
             changed |= WorkspaceUiController.restoreAllSolverStates(rootView);
         }

@@ -942,7 +942,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_canvas_popup_cloud", "隐藏画布设置云同步页"),
                     TranslationEngine.get("libre_desc_hide_canvas_popup_cloud",
-                            "在画布设置弹窗中隐藏云存档按钮和云图分页。关闭后恢复显示。"),
+                            "在画布设置弹窗和图片选择器中隐藏云存档按钮及云盘分页。关闭后恢复显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_CANVAS_POPUP_CLOUD, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_CANVAS_POPUP_CLOUD, isChecked));

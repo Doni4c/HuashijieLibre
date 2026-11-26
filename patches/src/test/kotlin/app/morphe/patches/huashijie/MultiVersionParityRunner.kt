@@ -470,6 +470,18 @@ fun main() {
     val shareBitmapWrapper = MultiVersionResolvers.resolveShareBitmapWrapperClass(allClasses)
     assertParity("ShareBitmapWrapper.class", shareBitmapWrapper.type, "Lo00Oo0Oo/o00O00;")
 
+    val localImageActivity = MultiVersionResolvers.resolveLocalImageActivityClass(allClasses)
+    assertParity(
+        "LocalImageActivity.class",
+        localImageActivity.type,
+        "Lnet/huanci/hsjpro/activities/LocalImageActivity;",
+    )
+    assertParity(
+        "LocalImageActivity.showCloudMethod",
+        MultiVersionResolvers.resolveLocalImageShowCloudMethod(allClasses, localImageActivity).name,
+        "o000O0o0",
+    )
+
     verifyNativePaintLibParity(apk)
 
     println("ALL $parityChecks STRUCTURAL TARGET PARITY CHECKS PASSED (1 TO 1 EXACT MATCH ON BASE.APK)")
