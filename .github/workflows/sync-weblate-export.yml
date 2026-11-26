@@ -1,0 +1,61 @@
+name: Sync Dictionaries to Weblate Flat Files
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "lang/*.json"
+      - "i18n/lang_helper.py"
+      - ".github/workflows/sync-weblate-export.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weblate-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  export-lang-to-flat:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.actor != 'github-actions[bot]' &&
+        !contains(github.event.head_commit.message, '[skip weblate-sync]') &&
+        !contains(github.event.head_commit.message, '[skip ci]')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.WEBLATE_SYNC_PAT || github.token }}
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Export deduplicated flat files for Weblate
+        run: python3 i18n/lang_helper.py export-flat --all --flat-dir i18n/weblate
+
+      - name: Commit and push updated flat files if changed
+        run: |
+          if [ -z "$(git status --porcelain -- i18n/weblate)" ]; then
+            echo "No flat dictionary changes detected." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- i18n/weblate
+          git commit -m "chore(i18n): sync flat files for Weblate [skip weblate-sync] [skip ci]"
+          git pull --rebase origin main
+          git push
+          {
+            echo "## Weblate Flat Sync (Export)"
+            echo ""
+            echo "Synchronized \`i18n/weblate/\` from \`lang/*.json\`."
+          } >> "$GITHUB_STEP_SUMMARY"

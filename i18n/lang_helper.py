@@ -24,30 +24,52 @@ from typing import Any
 
 
 SECTIONS = ("strings_by_id", "strings_by_name", "strings_by_text", "strings_by_value")
-PROTECTED_ID_KEYS = {"0x7f110803", "0x7f110077"}
-PROTECTED_NAME_KEYS = {"sdcard_root_folder", "album_folder"}
+PROTECTED_ID_KEYS = {"0x7f110803", "0x7f110077", "0x7f110804"}
+PROTECTED_NAME_KEYS = {"sdcard_root_folder", "album_folder", "sdcard_root_old_folder"}
 BCP47_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 
 COMMON_LOCALE_NAMES = {
     "ar": "العربية",
+    "bn": "বাংলা",
+    "cs": "Čeština",
     "de": "Deutsch",
+    "el": "Ελληνικά",
     "en": "English",
+    "en-GB": "English (UK)",
     "en-US": "English",
     "es": "Español",
+    "es-419": "Español (Latinoamérica)",
+    "es-ES": "Español",
+    "fa": "فارسی",
+    "fil": "Filipino",
     "fr": "Français",
+    "he": "עברית",
+    "hi": "हिन्दी",
+    "hu": "Magyar",
     "id": "Bahasa Indonesia",
     "it": "Italiano",
     "ja": "日本語",
+    "km": "ខ្មែរ",
     "ko": "한국어",
+    "lo": "ລາວ",
     "ms": "Bahasa Melayu",
+    "my": "မြန်မာ",
+    "nl": "Nederlands",
     "pl": "Polski",
     "pt": "Português",
     "pt-BR": "Português (Brasil)",
+    "ro": "Română",
     "ru": "Русский",
+    "sv": "Svenska",
     "th": "ไทย",
+    "tl": "Tagalog",
     "tr": "Türkçe",
     "uk": "Українська",
+    "ur": "اردو",
     "vi": "Tiếng Việt",
+    "vi-VN": "Tiếng Việt",
+    "zh-HK": "中文 (香港)",
+    "zh-Hant": "中文 (繁體)",
     "zh-TW": "中文 (繁體)",
 }
 
@@ -71,10 +93,30 @@ def load_json_utf8(path: Path) -> dict[str, Any]:
     return data
 
 
-def write_json_lf(path: Path, data: dict[str, Any]) -> None:
+def write_json_lf(path: Path, data: dict[str, Any]) -> bool:
+    """Write JSON as UTF-8 without BOM and LF line endings when bytes changed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     serialized = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-    path.write_text(serialized, encoding="utf-8", newline="\n")
+    encoded = serialized.encode("utf-8")
+    if path.is_file() and path.read_bytes() == encoded:
+        return False
+    path.write_bytes(encoded)
+    return True
+
+
+def is_protected_key(sec: str, key: str) -> bool:
+    """Return True if a dictionary entry stores a protected Android folder path."""
+    return (sec == "strings_by_id" and key in PROTECTED_ID_KEYS) or (
+        sec == "strings_by_name" and key in PROTECTED_NAME_KEYS
+    )
+
+
+def normalize_locale_code(raw_code: str) -> str:
+    """Normalize Weblate or POSIX locale tags (e.g. pt_BR, sr@latin) toward BCP-47."""
+    cleaned = raw_code.strip().replace("@", "-").replace("_", "-")
+    if cleaned.lower().endswith("-latin"):
+        cleaned = cleaned[:-6] + "-Latn"
+    return cleaned
 
 
 def compute_total_strings(template: dict[str, Any]) -> int:
@@ -91,15 +133,31 @@ def compute_total_strings(template: dict[str, Any]) -> int:
     return computed
 
 
+def build_metadata(
+    lang_code: str,
+    display_name: str,
+    template: dict[str, Any],
+) -> dict[str, Any]:
+    """Build normalized __metadata__ aligned with _template_zh.json."""
+    tmpl_meta = template.get("__metadata__", {})
+    return {
+        "locale": lang_code,
+        "name": display_name,
+        "app": tmpl_meta.get("app", "net.huanci.hsjpro"),
+        "version": tmpl_meta.get("version", "3.4.6"),
+        "total_strings": compute_total_strings(template),
+    }
+
+
 def cmd_init(args: argparse.Namespace) -> int:
-    lang_code = args.lang_code.strip()
+    lang_code = normalize_locale_code(args.lang_code)
     if not BCP47_RE.match(lang_code):
         print(
             f"ERROR: Invalid language code '{lang_code}'. Use BCP-47 such as 'es', 'ja', 'ko', 'pt-BR'.",
             file=sys.stderr,
         )
         return 1
-    if lang_code.lower() in {"zh-cn", "_template_zh"}:
+    if lang_code.lower() in {"zh-cn", "_template-zh"}:
         print("ERROR: Use a target locale code other than 'zh-CN'.", file=sys.stderr)
         return 1
 
@@ -114,17 +172,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
         return 1
 
-    tmpl_meta = template.get("__metadata__", {})
     display_name = args.name or COMMON_LOCALE_NAMES.get(lang_code) or lang_code
 
     new_doc: dict[str, Any] = {
-        "__metadata__": {
-            "locale": lang_code,
-            "name": display_name,
-            "app": tmpl_meta.get("app", "net.huanci.hsjpro"),
-            "version": tmpl_meta.get("version", "3.4.6"),
-            "total_strings": compute_total_strings(template),
-        }
+        "__metadata__": build_metadata(lang_code, display_name, template)
     }
 
     for sec in SECTIONS:
@@ -132,10 +183,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         en_sec = en_data.get(sec, {}) if en_data else {}
         out_sec: dict[str, str] = {}
         for k, zh_val in ref_sec.items():
-            is_protected = (sec == "strings_by_id" and k in PROTECTED_ID_KEYS) or (
-                sec == "strings_by_name" and k in PROTECTED_NAME_KEYS
-            )
-            if en_data and not is_protected and isinstance(en_sec.get(k), str):
+            if en_data and not is_protected_key(sec, k) and isinstance(en_sec.get(k), str):
                 out_sec[k] = en_sec[k]
             else:
                 out_sec[k] = zh_val
@@ -157,18 +205,15 @@ def sync_one_file(
     dry_run: bool,
 ) -> tuple[int, int, int]:
     target = load_json_utf8(target_path)
-    tmpl_meta = template.get("__metadata__", {})
     tgt_meta = target.get("__metadata__", {})
     if not isinstance(tgt_meta, dict):
         tgt_meta = {}
 
-    merged_meta = {
-        "locale": tgt_meta.get("locale", target_path.stem),
-        "name": tgt_meta.get("name", target_path.stem),
-        "app": tmpl_meta.get("app", "net.huanci.hsjpro"),
-        "version": tmpl_meta.get("version", "3.4.6"),
-        "total_strings": compute_total_strings(template),
-    }
+    merged_meta = build_metadata(
+        str(tgt_meta.get("locale", target_path.stem)),
+        str(tgt_meta.get("name", target_path.stem)),
+        template,
+    )
 
     added = 0
     removed = 0
@@ -190,10 +235,7 @@ def sync_one_file(
                 new_sec[k] = tgt_sec[k]
             else:
                 added += 1
-                is_protected = (sec == "strings_by_id" and k in PROTECTED_ID_KEYS) or (
-                    sec == "strings_by_name" and k in PROTECTED_NAME_KEYS
-                )
-                if en_data and not is_protected and isinstance(en_sec.get(k), str):
+                if en_data and not is_protected_key(sec, k) and isinstance(en_sec.get(k), str):
                     new_sec[k] = en_sec[k]
                 else:
                     new_sec[k] = zh_val
@@ -205,9 +247,7 @@ def sync_one_file(
             ref_sec = template[sec]
             sec_map = synced[sec]
             for k, zh_val in ref_sec.items():
-                if (sec == "strings_by_id" and k in PROTECTED_ID_KEYS) or (
-                    sec == "strings_by_name" and k in PROTECTED_NAME_KEYS
-                ):
+                if is_protected_key(sec, k):
                     continue
                 val = sec_map[k]
                 if val != zh_val and zh_val not in zh_to_trans:
@@ -217,9 +257,7 @@ def sync_one_file(
             ref_sec = template[sec]
             sec_map = synced[sec]
             for k, zh_val in ref_sec.items():
-                if (sec == "strings_by_id" and k in PROTECTED_ID_KEYS) or (
-                    sec == "strings_by_name" and k in PROTECTED_NAME_KEYS
-                ):
+                if is_protected_key(sec, k):
                     continue
                 if zh_val not in zh_to_trans:
                     continue
@@ -287,10 +325,13 @@ def canonical_flat_key(sec: str, key: str, zh_val: str, id_to_name: dict[str, st
     return candidate
 
 
-def cmd_export_flat(args: argparse.Namespace) -> int:
-    template = load_json_utf8(args.template)
-    lang_data = load_json_utf8(args.input_file)
+def dedup_token_for(sec: str, key: str, zh_val: str) -> str:
+    # Keep libre_* and other symbolic keys distinct even if Chinese text matches
+    return f"SYM:{key}" if (sec == "strings_by_text" and key != zh_val) else f"TXT:{zh_val}"
 
+
+def build_flat_mapping(template: dict[str, Any]) -> dict[str, str]:
+    """Build deterministic deduplication token -> flat key mapping from _template_zh.json."""
     id_keys = list(template["strings_by_id"].keys())
     name_keys = list(template["strings_by_name"].keys())
     id_to_name = {
@@ -299,77 +340,215 @@ def cmd_export_flat(args: argparse.Namespace) -> int:
         if template["strings_by_id"][ik] == template["strings_by_name"][nk]
     }
 
-    flat: dict[str, str] = {}
     seen_zh_key: dict[str, str] = {}
     used_keys: set[str] = set()
+    for sec in SECTIONS:
+        for k, zh_val in template[sec].items():
+            if is_protected_key(sec, k):
+                continue
+            token = dedup_token_for(sec, k, zh_val)
+            if token not in seen_zh_key:
+                seen_zh_key[token] = canonical_flat_key(sec, k, zh_val, id_to_name, used_keys)
+    return seen_zh_key
+
+
+def flatten_flat_json(data: dict[str, Any], prefix: str = "") -> dict[str, str]:
+    """Flatten flat or nested Weblate JSON objects into dot-joined string entries."""
+    out: dict[str, str] = {}
+    for k, v in data.items():
+        full_key = f"{prefix}.{k}" if prefix else str(k)
+        if isinstance(v, dict):
+            out.update(flatten_flat_json(v, full_key))
+        elif isinstance(v, str):
+            out[full_key] = v
+    return out
+
+
+def export_one_flat(
+    template: dict[str, Any],
+    input_path: Path,
+    output_path: Path,
+    mapping: dict[str, str],
+) -> tuple[int, bool]:
+    """Export one 4-table dictionary into deduplicated flat JSON."""
+    lang_data = load_json_utf8(input_path)
+    flat: dict[str, str] = {}
+    written_tokens: set[str] = set()
 
     for sec in SECTIONS:
         ref_sec = template[sec]
         tgt_sec = lang_data.get(sec, {})
+        if not isinstance(tgt_sec, dict):
+            tgt_sec = {}
         for k, zh_val in ref_sec.items():
-            if (sec == "strings_by_id" and k in PROTECTED_ID_KEYS) or (
-                sec == "strings_by_name" and k in PROTECTED_NAME_KEYS
-            ):
+            if is_protected_key(sec, k):
                 continue
-            # Keep libre_* and other symbolic keys distinct even if Chinese text matches
-            dedup_token = f"SYM:{k}" if (sec == "strings_by_text" and k != zh_val) else f"TXT:{zh_val}"
-            if dedup_token in seen_zh_key:
+            token = dedup_token_for(sec, k, zh_val)
+            if token in written_tokens:
                 continue
-            flat_key = canonical_flat_key(sec, k, zh_val, id_to_name, used_keys)
-            seen_zh_key[dedup_token] = flat_key
+            written_tokens.add(token)
+            flat_key = mapping[token]
             val = tgt_sec.get(k, zh_val)
             flat[flat_key] = val if isinstance(val, str) and val != "" else zh_val
 
-    write_json_lf(args.output, flat)
-    print(f"Exported {len(flat)} deduplicated translation keys to {args.output}.")
+    changed = write_json_lf(output_path, flat)
+    return len(flat), changed
+
+
+def import_one_flat(
+    template: dict[str, Any],
+    flat_path: Path,
+    target_path: Path,
+    mapping: dict[str, str],
+    locale: str | None = None,
+    name: str | None = None,
+) -> tuple[int, bool, bool]:
+    """Compile a flat JSON file into a new or existing 4-table dictionary."""
+    raw_flat = load_json_utf8(flat_path)
+    flat = flatten_flat_json(raw_flat)
+
+    created = not target_path.is_file()
+    if created:
+        lang_code = normalize_locale_code(locale or target_path.stem)
+        if not BCP47_RE.match(lang_code) or lang_code.lower() in {"zh-cn", "_template-zh"}:
+            raise ValueError(
+                f"Invalid target locale '{lang_code}' derived from {flat_path.name}. Use BCP-47 tags such as 'es', 'ja', or 'pt-BR'."
+            )
+        display_name = name or COMMON_LOCALE_NAMES.get(lang_code) or lang_code
+        existing: dict[str, Any] = {}
+        merged_meta = build_metadata(lang_code, display_name, template)
+    else:
+        existing = load_json_utf8(target_path)
+        tgt_meta = existing.get("__metadata__", {})
+        if not isinstance(tgt_meta, dict):
+            tgt_meta = {}
+        lang_code = str(locale or tgt_meta.get("locale") or normalize_locale_code(target_path.stem))
+        display_name = str(name or tgt_meta.get("name") or COMMON_LOCALE_NAMES.get(lang_code) or lang_code)
+        merged_meta = build_metadata(lang_code, display_name, template)
+
+    compiled: dict[str, Any] = {"__metadata__": merged_meta}
+    updated = 0
+
+    for sec in SECTIONS:
+        ref_sec: dict[str, str] = template[sec]
+        prev_sec = existing.get(sec, {})
+        if not isinstance(prev_sec, dict):
+            prev_sec = {}
+        new_sec: dict[str, str] = {}
+
+        for k, zh_val in ref_sec.items():
+            prev_val = prev_sec.get(k)
+            if is_protected_key(sec, k):
+                next_val = zh_val
+            else:
+                flat_key = mapping.get(dedup_token_for(sec, k, zh_val))
+                flat_val = flat.get(flat_key) if flat_key else None
+                if isinstance(flat_val, str) and flat_val != "":
+                    next_val = flat_val
+                elif isinstance(prev_val, str) and prev_val != "":
+                    next_val = prev_val
+                else:
+                    next_val = zh_val
+
+            if prev_val != next_val:
+                updated += 1
+            new_sec[k] = next_val
+
+        compiled[sec] = new_sec
+
+    changed = write_json_lf(target_path, compiled)
+    return updated, created, changed
+
+
+def resolve_flat_output_path(lang_file: Path, flat_dir: Path) -> Path:
+    """Resolve destination flat file path, reusing existing underscore variants if present."""
+    direct = flat_dir / lang_file.name
+    if direct.exists():
+        return direct
+    if "-" in lang_file.stem:
+        alt = flat_dir / f"{lang_file.stem.replace('-', '_')}.json"
+        if alt.exists():
+            return alt
+    return direct
+
+
+def cmd_export_flat(args: argparse.Namespace) -> int:
+    template = load_json_utf8(args.template)
+    mapping = build_flat_mapping(template)
+
+    if args.all:
+        if args.input_file is not None or args.output is not None:
+            print("ERROR: Do not pass positional input_file or --output when using --all.", file=sys.stderr)
+            return 1
+        sources = sorted(p for p in args.lang_dir.glob("*.json") if p.is_file())
+        if not sources:
+            print(f"ERROR: No JSON files found in {args.lang_dir}.", file=sys.stderr)
+            return 1
+        for src_path in sources:
+            out_path = resolve_flat_output_path(src_path, args.flat_dir)
+            count, changed = export_one_flat(template, src_path, out_path, mapping)
+            state = "updated" if changed else "unchanged"
+            print(f"Exported {count} keys from {src_path} to {out_path} ({state}).")
+        return 0
+
+    if args.input_file is None or args.output is None:
+        print("ERROR: Specify <input_file> and --output/-o, or pass --all.", file=sys.stderr)
+        return 1
+
+    count, changed = export_one_flat(template, args.input_file, args.output, mapping)
+    state = "updated" if changed else "unchanged"
+    print(f"Exported {count} deduplicated translation keys to {args.output} ({state}).")
     return 0
 
 
 def cmd_import_flat(args: argparse.Namespace) -> int:
     template = load_json_utf8(args.template)
-    flat = load_json_utf8(args.flat_file)
-    target = load_json_utf8(args.target)
+    mapping = build_flat_mapping(template)
 
-    id_keys = list(template["strings_by_id"].keys())
-    name_keys = list(template["strings_by_name"].keys())
-    id_to_name = {
-        ik: nk
-        for ik, nk in zip(id_keys, name_keys)
-        if template["strings_by_id"][ik] == template["strings_by_name"][nk]
-    }
-
-    # Build exact same dedup mapping from template to flat keys
-    seen_zh_key: dict[str, str] = {}
-    used_keys: set[str] = set()
-    for sec in SECTIONS:
-        for k, zh_val in template[sec].items():
-            if (sec == "strings_by_id" and k in PROTECTED_ID_KEYS) or (
-                sec == "strings_by_name" and k in PROTECTED_NAME_KEYS
-            ):
+    if args.all:
+        if args.flat_file is not None or args.target is not None:
+            print("ERROR: Do not pass positional flat_file or --target when using --all.", file=sys.stderr)
+            return 1
+        if not args.flat_dir.is_dir():
+            print(f"ERROR: Flat directory does not exist: {args.flat_dir}", file=sys.stderr)
+            return 1
+        flat_files = sorted(p for p in args.flat_dir.glob("*.json") if p.is_file())
+        for fp in flat_files:
+            if fp.name == args.template.name or fp.stem.lower() in {"_template_zh", "zh-cn", "zh_cn"}:
+                print(f"Skipped source template {fp}.")
                 continue
-            dedup_token = f"SYM:{k}" if (sec == "strings_by_text" and k != zh_val) else f"TXT:{zh_val}"
-            if dedup_token not in seen_zh_key:
-                seen_zh_key[dedup_token] = canonical_flat_key(sec, k, zh_val, id_to_name, used_keys)
+            norm_code = normalize_locale_code(fp.stem)
+            target_path = args.lang_dir / f"{norm_code}.json"
+            try:
+                updated, created, changed = import_one_flat(
+                    template, fp, target_path, mapping
+                )
+            except ValueError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
+            action = "Created" if created else ("Updated" if changed else "Unchanged")
+            print(f"{action} {target_path} from {fp} (entries changed={updated}).")
+        return 0
 
-    updated = 0
-    for sec in SECTIONS:
-        ref_sec = template[sec]
-        tgt_sec = target.setdefault(sec, {})
-        for k, zh_val in ref_sec.items():
-            if (sec == "strings_by_id" and k in PROTECTED_ID_KEYS) or (
-                sec == "strings_by_name" and k in PROTECTED_NAME_KEYS
-            ):
-                tgt_sec[k] = zh_val
-                continue
-            dedup_token = f"SYM:{k}" if (sec == "strings_by_text" and k != zh_val) else f"TXT:{zh_val}"
-            flat_key = seen_zh_key.get(dedup_token)
-            if flat_key and isinstance(flat.get(flat_key), str) and flat[flat_key] != "":
-                if tgt_sec.get(k) != flat[flat_key]:
-                    tgt_sec[k] = flat[flat_key]
-                    updated += 1
+    if args.flat_file is None or args.target is None:
+        print("ERROR: Specify <flat_file> and --target/-t, or pass --all.", file=sys.stderr)
+        return 1
 
-    write_json_lf(args.target, target)
-    print(f"Imported flat translations into {args.target} (updated {updated} entries).")
+    try:
+        updated, created, changed = import_one_flat(
+            template,
+            args.flat_file,
+            args.target,
+            mapping,
+            locale=args.locale,
+            name=args.name,
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    action = "Created" if created else ("Updated" if changed else "Unchanged")
+    print(f"{action} {args.target} from flat translations (entries changed={updated}).")
     return 0
 
 
@@ -415,13 +594,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.set_defaults(func=cmd_sync)
 
     p_exp = sub.add_parser("export-flat", help="Export deduplicated flat JSON for Weblate/Crowdin.")
-    p_exp.add_argument("input_file", type=Path, help="Source or translated dictionary JSON.")
-    p_exp.add_argument("--output", "-o", type=Path, required=True, help="Output flat JSON path.")
+    p_exp.add_argument("input_file", nargs="?", type=Path, default=None, help="Source or translated dictionary JSON.")
+    p_exp.add_argument("--output", "-o", type=Path, default=None, help="Output flat JSON path.")
+    p_exp.add_argument("--all", action="store_true", help="Export all lang/*.json files into --flat-dir.")
+    p_exp.add_argument("--flat-dir", type=Path, default=Path("i18n/weblate"), help="Flat dictionary directory.")
     p_exp.set_defaults(func=cmd_export_flat)
 
     p_imp = sub.add_parser("import-flat", help="Import translated flat JSON back into full dictionary JSON.")
-    p_imp.add_argument("flat_file", type=Path, help="Translated flat JSON path.")
-    p_imp.add_argument("--target", "-t", type=Path, required=True, help="Target dictionary JSON path to update.")
+    p_imp.add_argument("flat_file", nargs="?", type=Path, default=None, help="Translated flat JSON path.")
+    p_imp.add_argument("--target", "-t", type=Path, default=None, help="Target dictionary JSON path to update or create.")
+    p_imp.add_argument("--locale", default=None, help="Explicit BCP-47 locale override when creating a new dictionary.")
+    p_imp.add_argument("--name", default=None, help="Explicit native display name when creating a new dictionary.")
+    p_imp.add_argument("--all", action="store_true", help="Import all non-template flat JSON files from --flat-dir.")
+    p_imp.add_argument("--flat-dir", type=Path, default=Path("i18n/weblate"), help="Flat dictionary directory.")
     p_imp.set_defaults(func=cmd_import_flat)
 
     return parser
