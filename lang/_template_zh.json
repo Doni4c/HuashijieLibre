@@ -10069,6 +10069,8 @@
     "libre_desc_credits": "Doni4c、Morphe 与社区贡献者",
     "libre_opt_docs_license": "使用文档与开源协议",
     "libre_desc_docs_license": "GPL-3.0 开源协议与使用及翻译说明",
+    "libre_opt_contribute_translations": "参与翻译",
+    "libre_desc_contribute_translations": "在浏览器打开 GitHub 翻译指南（TRANSLATING.md）",
     "libre_opt_copy_diagnostics": "复制系统诊断信息",
     "libre_update_checking": "正在检查更新...",
     "libre_update_error_title": "无法检查更新",

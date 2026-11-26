@@ -10069,6 +10069,8 @@
     "libre_desc_credits": "Doni4c, Morphe và cộng đồng đóng góp",
     "libre_opt_docs_license": "Tài liệu và giấy phép mã nguồn mở",
     "libre_desc_docs_license": "Giấy phép GNU GPL v3.0 và hướng dẫn sử dụng",
+    "libre_opt_contribute_translations": "Đóng góp bản dịch",
+    "libre_desc_contribute_translations": "Mở hướng dẫn dịch trên GitHub (TRANSLATING.md)",
     "libre_opt_copy_diagnostics": "Sao chép thông tin chẩn đoán",
     "libre_update_checking": "Đang kiểm tra cập nhật...",
     "libre_update_error_title": "Không thể kiểm tra cập nhật",

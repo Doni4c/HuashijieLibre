@@ -71,7 +71,7 @@ public final class LibreSettingsInjector {
     private static final String TAG_ENTRY_TITLE = "libre_settings_title_tv";
     private static final String TAG_ENTRY_DESC = "libre_settings_desc";
 
-    private static final String LIBRE_VERSION = "1.0.0-beta.2";
+    private static final String LIBRE_VERSION = "1.0.0-beta.3";
     private static final String BASE_APP_VERSION = "3.4.6";
     private static final String GITHUB_REPO_URL = "https://github.com/Doni4c/HuashijieLibre";
     private static final String GITHUB_RELEASES_URL = GITHUB_REPO_URL + "/releases";
@@ -1286,6 +1286,13 @@ public final class LibreSettingsInjector {
                 colorTextPrimary, colorTextSecondary, colorTextSecondary,
                 () -> showDocsAndLicenseDialog(activity, isNight));
 
+        addActionRowWithDivider(activity, card, colorDivider,
+                TranslationEngine.get("libre_opt_contribute_translations", "参与翻译"),
+                TranslationEngine.get("libre_desc_contribute_translations",
+                        "在浏览器打开 GitHub 翻译指南（TRANSLATING.md）"),
+                colorTextPrimary, colorTextSecondary, colorTextSecondary,
+                () -> openExternalUrl(activity, DOCS_TRANSLATING_URL));
+
         String runtimeSummary = getPrimaryAbi() + " · " + TranslationEngine.getLocalizedStats();
         addActionRowWithDivider(activity, card, colorDivider,
                 TranslationEngine.get("libre_opt_copy_diagnostics", "复制系统诊断信息"),
@@ -1517,7 +1524,7 @@ public final class LibreSettingsInjector {
     }
 
     private static void openExternalUrl(Activity activity, String url) {
-        if (activity == null || url == null || url.isEmpty()) return;
+        if (isActivityDead(activity) || url == null || url.isEmpty()) return;
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
