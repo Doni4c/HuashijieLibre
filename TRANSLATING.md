@@ -9,17 +9,23 @@
 [![Workflow](https://img.shields.io/badge/Preview-Hot%20Reload%20on%20Android-1F883D?style=for-the-badge)](#testing-your-translation-live-on-android)
 [![GPL-3.0 License](https://img.shields.io/badge/License-GPL--3.0-DC2626?style=for-the-badge)](LICENSE)
 
-[**Back to README**](README.md) | [**Terminology Glossary**](GLOSSARY.md) | [**Chinese Source Template**](lang/_template_zh.json) | [**English Reference**](lang/en.json) | [**Bundled Packs**](lang/)
+[**Back to README**](README.md) | [**Hosted Weblate**](https://hosted.weblate.org/projects/huashijielibre/) | [**Terminology Glossary**](GLOSSARY.md) | [**Chinese Source Template**](lang/_template_zh.json) | [**English Reference**](lang/en.json) | [**Bundled Packs**](lang/)
 
 </div>
 
 > [!NOTE]
 > **10-Second Start:**
-> 1. **Web translation portal:** Direct GitHub Pull Requests are currently the active submission channel (when Hosted Weblate is enabled, its link will appear right here).
-> 2. **Pick your path:** Edit on the GitHub website with zero coding tools ([Track A](#track-a-web-only-no-git-or-cli-required)), or initialize and preview live on Android using our Python helper ([Track B](#track-b-local-tooling-and-live-android-preview)).
-> 3. **Incremental PRs welcome:** Leave unfinished entries in Chinese or English; GitHub CI checks key parity, placeholders, and formatting automatically on every Pull Request.
+> 1. **Web translation portal (Recommended):** Translate directly in your browser on [Hosted Weblate](https://hosted.weblate.org/projects/huashijielibre/) (component: [HuashijieLibre UI](https://hosted.weblate.org/projects/huashijielibre/ui/)). Weblate deduplicates repeated strings, checks placeholders, and opens GitHub Pull Requests automatically without manual JSON editing.
+> 2. **Manual JSON paths:** Edit raw JSON on the GitHub website with zero coding tools ([Track A](#track-a-web-only-no-git-or-cli-required)), or initialize and preview live on Android using our Python helper ([Track B](#track-b-local-tooling-and-live-android-preview)).
+> 3. **Incremental contributions welcome:** Leave unfinished entries empty on Weblate (or in Chinese/English in manual PRs); GitHub CI checks key parity, placeholders, and formatting automatically on every Pull Request.
 
 HuashijieLibre loads its interface from external UTF-8 JSON dictionaries so artists and translators worldwide can contribute without Java, Kotlin, or Android Studio. Following the community model used by open-source art studios such as Krita, each language is reviewed by volunteer Language Maintainers against a shared art glossary and validated automatically before merge.
+
+## Hosted Weblate (Recommended)
+
+1. Open [Hosted Weblate](https://hosted.weblate.org/projects/huashijielibre/) or jump straight into the [HuashijieLibre UI](https://hosted.weblate.org/projects/huashijielibre/ui/) component.
+2. Select an existing language or start a new language directly in the web editor while consulting [GLOSSARY.md](GLOSSARY.md) and the priority tiers below.
+3. Submit suggestions or save translations; Weblate batches updates into GitHub Pull Requests targeting `i18n/weblate/*.json`, where automated CI compiles and validates the corresponding `lang/*.json` pack.
 
 ## Track A: Web-Only (No Git or CLI Required)
 
@@ -107,7 +113,7 @@ GitHub Actions and `:patches:validateDictionaries` enforce two severity levels o
 1. **Role:** Each active language can have one or more volunteer **Language Maintainers** listed in [.github/CODEOWNERS](.github/CODEOWNERS). Maintainers are automatically tagged on Pull Requests modifying their `lang/<code >.json`.
 2. **Responsibilities:** Review PRs for glossary consistency against [GLOSSARY.md](GLOSSARY.md), inspect CI soft warnings (short button overflow and cross-table drift), verify Priority 1 screens on device when possible, and approve ready PRs so the repository owner can merge quickly without manual translation audits.
 3. **Volunteering:** Contributors who have translated or thoroughly reviewed Priority 1 for a language can open an issue or PR note asking to be added under `.github/CODEOWNERS` for that file.
-4. **Hosted Weblate readiness:** Maintainers considering web-based translation integration can inspect [docs/TRANSLATION_PLATFORM.md](docs/TRANSLATION_PLATFORM.md) for compatibility constraints and the deduplicated flat-JSON bridge (`export-flat` / `import-flat`).
+4. **Hosted Weblate sync:** Contributions submitted on [Hosted Weblate](https://hosted.weblate.org/projects/huashijielibre/) sync through the deduplicated flat-JSON bridge (`i18n/weblate/*.json`) and automated Pull Requests documented in [docs/TRANSLATION_PLATFORM.md](docs/TRANSLATION_PLATFORM.md).
 
 ## Local Gradle Verification
 

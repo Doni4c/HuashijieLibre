@@ -145,7 +145,7 @@ You do not need to rebuild the APK to test a custom translation draft or change 
 
 ## Contributing and Local Builds
 
-Translators can contribute new packs without writing code or compiling Android projects. Detailed workflow guidelines, priority tiers, digital art terminology standards, and live device preview steps are documented in [TRANSLATING.md](TRANSLATING.md).
+Translators can contribute directly in the browser on [Hosted Weblate](https://hosted.weblate.org/projects/huashijielibre/) ([HuashijieLibre UI](https://hosted.weblate.org/projects/huashijielibre/ui/)) without editing JSON files or compiling Android projects. Manual JSON workflows, priority tiers, digital art terminology standards, and live device preview steps are documented in [TRANSLATING.md](TRANSLATING.md).
 
 Patch implementations live under `patches/src/main/kotlin/app/morphe/patches/huashijie/` across seven packages matching the catalog groups above, built against `app.morphe.patches` 2.1.0 and Morphe Patcher 2.3.0. Runtime controllers under `extensions/huashijie-libre/` compile into extension DEX (`classes6.dex`), routing `classes4.dex` hooks through `TranslationEngine.dispatch` to preserve the strict zero-new-MethodReference budget beneath the 65,535-method ceiling.
 
