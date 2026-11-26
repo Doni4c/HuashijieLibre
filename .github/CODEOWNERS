@@ -1,0 +1,27 @@
+# Translation Governance and Language Maintainers (Krita Model)
+#
+# Maintainers listed below are automatically requested to review PRs touching
+# their assigned files. Replace commented @github-handle placeholders as new
+# Language Maintainers volunteer for specific locales.
+
+# Core translation tooling, glossary, and canonical source template
+/i18n/ @Doni4c
+/GLOSSARY.md @Doni4c
+/TRANSLATING.md @Doni4c
+/docs/TRANSLATION_PLATFORM.md @Doni4c
+/.github/CODEOWNERS @Doni4c
+/.github/PULL_REQUEST_TEMPLATE/translation.md @Doni4c
+/lang/ @Doni4c
+/lang/_template_zh.json @Doni4c
+
+# Per-language Language Maintainer overrides (uncomment and assign GitHub handle):
+# /lang/en.json @github-handle
+# /lang/vi.json @github-handle
+# /lang/ja.json @github-handle
+# /lang/ko.json @github-handle
+# /lang/es.json @github-handle
+# /lang/fr.json @github-handle
+# /lang/de.json @github-handle
+# /lang/pt-BR.json @github-handle
+# /lang/id.json @github-handle
+# /lang/th.json @github-handle

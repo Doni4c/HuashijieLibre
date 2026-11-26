@@ -1,5 +1,3 @@
-import groovy.json.JsonParserType
-import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.jvm.tasks.Jar
@@ -34,135 +32,68 @@ kotlin {
 }
 
 val langDir = rootProject.layout.projectDirectory.dir("lang")
-val dictionaryNames = listOf("_template_zh.json", "vi.json", "en.json")
+val validatorScript = rootProject.layout.projectDirectory.file("i18n/validate_dictionaries.py")
 val validationStamp = layout.buildDirectory.file("reports/dictionaries-validated.txt")
 
 val validateDictionaries = tasks.register("validateDictionaries") {
     group = "verification"
-    description = "Validates JSON syntax, 100% key parity across dictionaries, and prohibited character rules."
+    description = "Validates JSON syntax, UTF-8/LF encoding, 100% 4-table parity, placeholders, and prohibited characters."
 
-    val dictionaryFiles = dictionaryNames.map { langDir.file(it) }
-    inputs.files(dictionaryFiles)
+    val dictionaryTree = fileTree(langDir) {
+        include("*.json")
+    }
+    inputs.files(dictionaryTree)
+    inputs.file(validatorScript)
     outputs.file(validationStamp)
 
     doLast {
-        val forbiddenChars = mapOf(
-            '\u2014' to "em-dash (U+2014)",
-            '\u2013' to "en-dash (U+2013)",
-            '\u2022' to "bullet (U+2022)",
+        val scriptFile = validatorScript.asFile
+        if (!scriptFile.isFile) {
+            throw GradleException("Missing shared dictionary validator script: ${scriptFile.absolutePath}")
+        }
+        val templateFile = langDir.file("_template_zh.json").asFile
+        val stampFile = validationStamp.get().asFile
+
+        val candidates = listOf(
+            listOf("python3"),
+            listOf("python"),
+            listOf("py", "-3"),
         )
-        val requiredSections = listOf("strings_by_id", "strings_by_text", "strings_by_value")
-        val slurper = JsonSlurper().apply {
-            type = JsonParserType.CHAR_BUFFER
-        }
-
-        fun scanProhibited(value: Any?, fileName: String, path: String) {
-            when (value) {
-                is String -> {
-                    for ((ch, label) in forbiddenChars) {
-                        if (value.indexOf(ch) >= 0) {
-                            throw GradleException("Prohibited character $label found in $fileName at $path")
-                        }
-                    }
+        var pythonCmd: List<String>? = null
+        for (candidate in candidates) {
+            try {
+                val probe = ProcessBuilder(candidate + listOf("--version"))
+                    .redirectErrorStream(true)
+                    .start()
+                if (probe.waitFor() == 0) {
+                    pythonCmd = candidate
+                    break
                 }
-                is Map<*, *> -> {
-                    for ((k, v) in value) {
-                        val keyStr = k?.toString() ?: ""
-                        scanProhibited(keyStr, fileName, "$path.<key:$keyStr>")
-                        scanProhibited(v, fileName, "$path.$keyStr")
-                    }
-                }
-                is Iterable<*> -> {
-                    value.forEachIndexed { idx, item ->
-                        scanProhibited(item, fileName, "$path[$idx]")
-                    }
-                }
+            } catch (_: Exception) {
             }
         }
-
-        val parsedDictionaries = linkedMapOf<String, Map<String, Any?>>()
-
-        for (fileRef in dictionaryFiles) {
-            val file = fileRef.asFile
-            if (!file.exists() || !file.isFile) {
-                throw GradleException("Missing required dictionary file: ${file.absolutePath}")
-            }
-
-            val rawText = file.readText(Charsets.UTF_8)
-            rawText.lineSequence().forEachIndexed { lineIdx, line ->
-                for ((ch, label) in forbiddenChars) {
-                    if (line.indexOf(ch) >= 0) {
-                        throw GradleException(
-                            "Prohibited character $label found in raw text of ${file.name} at line ${lineIdx + 1}"
-                        )
-                    }
-                }
-            }
-
-            val parsed = try {
-                slurper.parseText(rawText)
-            } catch (e: Exception) {
-                throw GradleException("Invalid JSON syntax in ${file.name}: ${e.message}", e)
-            }
-
-            @Suppress("UNCHECKED_CAST")
-            val rootMap = parsed as? Map<String, Any?>
-                ?: throw GradleException("Dictionary ${file.name} must have a JSON object at the root.")
-
-            scanProhibited(rootMap, file.name, "$")
-
-            for (section in requiredSections) {
-                if (rootMap[section] !is Map<*, *>) {
-                    throw GradleException("Dictionary ${file.name} is missing JSON object section '$section'.")
-                }
-            }
-
-            parsedDictionaries[file.name] = rootMap
+        if (pythonCmd == null) {
+            throw GradleException("Python 3 is required to run :patches:validateDictionaries (${scriptFile.name}).")
         }
 
-        val referenceName = "_template_zh.json"
-        val referenceMap = parsedDictionaries.getValue(referenceName)
-
-        for (section in requiredSections) {
-            @Suppress("UNCHECKED_CAST")
-            val refKeys = (referenceMap[section] as Map<String, Any?>).keys
-
-            for ((fileName, targetMap) in parsedDictionaries) {
-                if (fileName == referenceName) continue
-
-                @Suppress("UNCHECKED_CAST")
-                val targetKeys = (targetMap[section] as Map<String, Any?>).keys
-
-                val missing = refKeys - targetKeys
-                val extra = targetKeys - refKeys
-
-                if (missing.isNotEmpty() || extra.isNotEmpty()) {
-                    val details = buildString {
-                        append("Key parity mismatch between $referenceName and $fileName in section '$section': ")
-                        append("missing=${missing.size}, extra=${extra.size}.")
-                        if (missing.isNotEmpty()) {
-                            append(" Missing sample: ${missing.take(10)}")
-                        }
-                        if (extra.isNotEmpty()) {
-                            append(" Extra sample: ${extra.take(10)}")
-                        }
-                    }
-                    throw GradleException(details)
-                }
-            }
+        val cmd = pythonCmd + listOf(
+            scriptFile.absolutePath,
+            "--lang-dir", langDir.asFile.absolutePath,
+            "--template", templateFile.absolutePath,
+            "--stamp", stampFile.absolutePath,
+        )
+        val process = ProcessBuilder(cmd)
+            .directory(rootProject.projectDir)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader(Charsets.UTF_8).readText()
+        val exitCode = process.waitFor()
+        if (output.isNotBlank()) {
+            logger.lifecycle(output.trimEnd())
         }
-
-        val stamp = validationStamp.get().asFile
-        stamp.parentFile.mkdirs()
-        val summary = buildString {
-            appendLine("Validated ${parsedDictionaries.size} dictionaries successfully.")
-            for (section in requiredSections) {
-                val count = (referenceMap[section] as Map<*, *>).size
-                appendLine("$section=$count")
-            }
+        if (exitCode != 0) {
+            throw GradleException("Dictionary validation failed (exit code $exitCode). See validation output above.")
         }
-        stamp.writeText(summary, Charsets.UTF_8)
-        logger.lifecycle("validateDictionaries: passed 100% parity and character checks for $dictionaryNames")
     }
 }
 
