@@ -40,22 +40,22 @@ jobs:
           python-version: "3.12"
 
       - name: Export deduplicated flat files for Weblate
-        run: python3 i18n/lang_helper.py export-flat --all --flat-dir i18n/weblate
+        run: python3 i18n/lang_helper.py export-flat --all --flat-dir i18n/weblate --flat-template i18n/weblate-template.json
 
       - name: Commit and push updated flat files if changed
         run: |
-          if [ -z "$(git status --porcelain -- i18n/weblate)" ]; then
+          if [ -z "$(git status --porcelain -- i18n/weblate i18n/weblate-template.json)" ]; then
             echo "No flat dictionary changes detected." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- i18n/weblate
+          git add -- i18n/weblate i18n/weblate-template.json
           git commit -m "chore(i18n): sync flat files for Weblate [skip weblate-sync] [skip ci]"
           git pull --rebase origin main
           git push
           {
             echo "## Weblate Flat Sync (Export)"
             echo ""
-            echo "Synchronized \`i18n/weblate/\` from \`lang/*.json\`."
+            echo "Synchronized \`i18n/weblate/\` and \`i18n/weblate-template.json\` from \`lang/*.json\`."
           } >> "$GITHUB_STEP_SUMMARY"

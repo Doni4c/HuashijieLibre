@@ -7,7 +7,7 @@ Supports:
 2. sync: align existing dictionary keys and ordering with _template_zh.json,
    and optionally propagate translations across duplicate source strings
 3. export-flat / import-flat: deduplicated flat JSON bridge for Hosted Weblate
-   or Crowdin Open Source workflows without touching __metadata__.
+   (i18n/weblate/*.json and i18n/weblate-template.json) without touching __metadata__.
 
 Uses only Python standard library modules; writes UTF-8 without BOM and LF.
 """
@@ -27,6 +27,8 @@ SECTIONS = ("strings_by_id", "strings_by_name", "strings_by_text", "strings_by_v
 PROTECTED_ID_KEYS = {"0x7f110803", "0x7f110077", "0x7f110804"}
 PROTECTED_NAME_KEYS = {"sdcard_root_folder", "album_folder", "sdcard_root_old_folder"}
 BCP47_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
+DEFAULT_FLAT_DIR = Path("i18n/weblate")
+DEFAULT_FLAT_TEMPLATE = Path("i18n/weblate-template.json")
 
 COMMON_LOCALE_NAMES = {
     "ar": "العربية",
@@ -410,7 +412,11 @@ def import_one_flat(
     created = not target_path.is_file()
     if created:
         lang_code = normalize_locale_code(locale or target_path.stem)
-        if not BCP47_RE.match(lang_code) or lang_code.lower() in {"zh-cn", "_template-zh"}:
+        if not BCP47_RE.match(lang_code) or lang_code.lower() in {
+            "zh-cn",
+            "_template-zh",
+            "weblate-template",
+        }:
             raise ValueError(
                 f"Invalid target locale '{lang_code}' derived from {flat_path.name}. Use BCP-47 tags such as 'es', 'ja', or 'pt-BR'."
             )
@@ -484,11 +490,22 @@ def cmd_export_flat(args: argparse.Namespace) -> int:
         if not sources:
             print(f"ERROR: No JSON files found in {args.lang_dir}.", file=sys.stderr)
             return 1
+        exported_template = False
         for src_path in sources:
-            out_path = resolve_flat_output_path(src_path, args.flat_dir)
+            if src_path.resolve() == args.template.resolve() or src_path.stem == "_template_zh":
+                if src_path.resolve() != args.template.resolve():
+                    continue
+                out_path = args.flat_template
+                exported_template = True
+            else:
+                out_path = resolve_flat_output_path(src_path, args.flat_dir)
             count, changed = export_one_flat(template, src_path, out_path, mapping)
             state = "updated" if changed else "unchanged"
             print(f"Exported {count} keys from {src_path} to {out_path} ({state}).")
+        if not exported_template and args.template.is_file():
+            count, changed = export_one_flat(template, args.template, args.flat_template, mapping)
+            state = "updated" if changed else "unchanged"
+            print(f"Exported {count} keys from {args.template} to {args.flat_template} ({state}).")
         return 0
 
     if args.input_file is None or args.output is None:
@@ -514,7 +531,12 @@ def cmd_import_flat(args: argparse.Namespace) -> int:
             return 1
         flat_files = sorted(p for p in args.flat_dir.glob("*.json") if p.is_file())
         for fp in flat_files:
-            if fp.name == args.template.name or fp.stem.lower() in {"_template_zh", "zh-cn", "zh_cn"}:
+            if (
+                fp.resolve() == args.flat_template.resolve()
+                or fp.name == args.template.name
+                or fp.name == args.flat_template.name
+                or fp.stem.lower() in {"_template_zh", "weblate-template", "weblate_template", "zh-cn", "zh_cn"}
+            ):
                 print(f"Skipped source template {fp}.")
                 continue
             norm_code = normalize_locale_code(fp.stem)
@@ -596,8 +618,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_exp = sub.add_parser("export-flat", help="Export deduplicated flat JSON for Weblate/Crowdin.")
     p_exp.add_argument("input_file", nargs="?", type=Path, default=None, help="Source or translated dictionary JSON.")
     p_exp.add_argument("--output", "-o", type=Path, default=None, help="Output flat JSON path.")
-    p_exp.add_argument("--all", action="store_true", help="Export all lang/*.json files into --flat-dir.")
-    p_exp.add_argument("--flat-dir", type=Path, default=Path("i18n/weblate"), help="Flat dictionary directory.")
+    p_exp.add_argument(
+        "--all",
+        action="store_true",
+        help="Export target lang/*.json files into --flat-dir and the base template to --flat-template.",
+    )
+    p_exp.add_argument("--flat-dir", type=Path, default=DEFAULT_FLAT_DIR, help="Flat dictionary directory.")
+    p_exp.add_argument(
+        "--flat-template",
+        type=Path,
+        default=DEFAULT_FLAT_TEMPLATE,
+        help="Output flat monolingual base template path for --all (default: i18n/weblate-template.json).",
+    )
     p_exp.set_defaults(func=cmd_export_flat)
 
     p_imp = sub.add_parser("import-flat", help="Import translated flat JSON back into full dictionary JSON.")
@@ -606,7 +638,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_imp.add_argument("--locale", default=None, help="Explicit BCP-47 locale override when creating a new dictionary.")
     p_imp.add_argument("--name", default=None, help="Explicit native display name when creating a new dictionary.")
     p_imp.add_argument("--all", action="store_true", help="Import all non-template flat JSON files from --flat-dir.")
-    p_imp.add_argument("--flat-dir", type=Path, default=Path("i18n/weblate"), help="Flat dictionary directory.")
+    p_imp.add_argument("--flat-dir", type=Path, default=DEFAULT_FLAT_DIR, help="Flat dictionary directory.")
+    p_imp.add_argument(
+        "--flat-template",
+        type=Path,
+        default=DEFAULT_FLAT_TEMPLATE,
+        help="Flat monolingual base template path excluded from --all imports (default: i18n/weblate-template.json).",
+    )
     p_imp.set_defaults(func=cmd_import_flat)
 
     return parser

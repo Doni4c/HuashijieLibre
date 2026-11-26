@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "i18n/weblate/*.json"
+      - "i18n/weblate-template.json"
       - "i18n/lang_helper.py"
       - "i18n/validate_dictionaries.py"
       - ".github/workflows/sync-weblate-import.yml"
@@ -14,6 +15,7 @@ on:
       - main
     paths:
       - "i18n/weblate/*.json"
+      - "i18n/weblate-template.json"
   workflow_dispatch:
 
 concurrency:
@@ -36,7 +38,7 @@ jobs:
           python-version: "3.12"
 
       - name: Compile flat files into workspace lang dictionaries
-        run: python3 i18n/lang_helper.py import-flat --all --flat-dir i18n/weblate
+        run: python3 i18n/lang_helper.py import-flat --all --flat-dir i18n/weblate --flat-template i18n/weblate-template.json
 
       - name: Validate compiled dictionaries and write step summary
         run: python3 i18n/validate_dictionaries.py --summary-file "$GITHUB_STEP_SUMMARY"
@@ -83,7 +85,7 @@ jobs:
           python-version: "3.12"
 
       - name: Compile flat files into 4-table lang dictionaries
-        run: python3 i18n/lang_helper.py import-flat --all --flat-dir i18n/weblate
+        run: python3 i18n/lang_helper.py import-flat --all --flat-dir i18n/weblate --flat-template i18n/weblate-template.json
 
       - name: Validate compiled dictionaries and write step summary
         run: python3 i18n/validate_dictionaries.py --summary-file "$GITHUB_STEP_SUMMARY"

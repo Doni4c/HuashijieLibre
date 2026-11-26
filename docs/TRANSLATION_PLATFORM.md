@@ -16,7 +16,7 @@ Inspecting `lang/_template_zh.json`, `lang/vi.json`, and `lang/en.json` reveals 
 | Evaluation Dimension | Hosted Weblate (Libre Plan) | Crowdin Open Source |
 | :--- | :--- | :--- |
 | License alignment (`GPL-3.0`) | Built on `GPL-3.0`; Libre hosting targets public OSI/FSF repositories with zero vendor lock-in. | Free Open Source tier requires manual approval on proprietary SaaS. |
-| Flat vs nested JSON bridge | Works cleanly with flat monolingual JSON (`i18n/weblate/*.json`) using `i18n/weblate/_template_zh.json` as the base file. | Supports nested JSON, but `crowdin.yml` lacks native exclusion for `__metadata__` without Marketplace apps or scripts. |
+| Flat vs nested JSON bridge | Works cleanly with flat monolingual JSON (`i18n/weblate/*.json`) using `i18n/weblate-template.json` as the base file. | Supports nested JSON, but `crowdin.yml` lacks native exclusion for `__metadata__` without Marketplace apps or scripts. |
 | Duplicate string workload | Reading `i18n/weblate/*.json` eliminates `__metadata__`, protected path keys, and cross-table duplicates (`3,836` keys instead of `10,118`). | Requires custom pre/post-processing scripts anyway to deduplicate 4 tables. |
 | Built-in QA checks | Built-in `printf` format checks, HTML/XML tag checks, unchanged translation warnings, and GitHub App PR automation. | Built-in placeholder QA and GitHub integration, weaker custom character-ban checks. |
 | Repo configuration | Configured directly in Weblate UI (do not commit speculative `.weblate` config files; `.weblate` is only a `wlc` CLI client pointer). | Requires `crowdin.yml` plus custom sync scripts. |
@@ -25,17 +25,17 @@ Inspecting `lang/_template_zh.json`, `lang/vi.json`, and `lang/en.json` reveals 
 
 ## 3. Automated Two-Way Sync Architecture (Zero AI, Loop-Safe)
 
-1. **Flat Bridge Directory (`i18n/weblate/`):** Contains `_template_zh.json` (source base file), `en.json`, `vi.json`, and any future `<locale>.json` files exported via `i18n/lang_helper.py` (`res.<name>`, `libre.<key>`, `txt.<hash>`). Protected Android folder keys (`0x7f110803`, `0x7f110077`, `0x7f110804`, `sdcard_root_folder`, `album_folder`, `sdcard_root_old_folder`) and `__metadata__` are excluded from Weblate and restored automatically during compilation.
-2. **Direction 1 (`lang/*.json` -> `i18n/weblate/*.json`):** `.github/workflows/sync-weblate-export.yml` runs on `push` to `main` touching `lang/*.json` or `i18n/lang_helper.py`, executes `python3 i18n/lang_helper.py export-flat --all --flat-dir i18n/weblate`, and pushes to `main` with `[skip weblate-sync] [skip ci]` only if `i18n/weblate/` changed.
+1. **Flat Bridge Directory (`i18n/weblate/` and `i18n/weblate-template.json`):** `i18n/weblate/` contains only target locale files (`en.json`, `vi.json`, and any future `<locale>.json`) while the Simplified Chinese source base file sits outside it at `i18n/weblate-template.json`, exported via `i18n/lang_helper.py` (`res.<name>`, `libre.<key>`, `txt.<hash>`). Protected Android folder keys (`0x7f110803`, `0x7f110077`, `0x7f110804`, `sdcard_root_folder`, `album_folder`, `sdcard_root_old_folder`) and `__metadata__` are excluded from Weblate and restored automatically during compilation.
+2. **Direction 1 (`lang/*.json` -> `i18n/weblate/*.json` + `i18n/weblate-template.json`):** `.github/workflows/sync-weblate-export.yml` runs on `push` to `main` touching `lang/*.json` or `i18n/lang_helper.py`, executes `python3 i18n/lang_helper.py export-flat --all --flat-dir i18n/weblate --flat-template i18n/weblate-template.json`, and pushes to `main` with `[skip weblate-sync] [skip ci]` only if `i18n/weblate/` or `i18n/weblate-template.json` changed.
 3. **Direction 2 (`i18n/weblate/*.json` -> `lang/*.json`):** `.github/workflows/sync-weblate-import.yml` handles two safe stages to respect `GITHUB_TOKEN` permissions:
-   1. **On Pull Request (`pull_request` touching `i18n/weblate/*.json`):** Runs with `contents: read` (works on both Hosted Weblate PRs and external fork PRs without 403 errors or branch push conflicts against Weblate), compiles `i18n/weblate/*.json` in the runner workspace (`import-flat --all`), runs `i18n/validate_dictionaries.py --summary-file "$GITHUB_STEP_SUMMARY"`, and runs `gradle :patches:validateDictionaries --no-daemon`.
-   2. **After Merge to `main` (`push` to `main` touching `i18n/weblate/*.json`):** Runs `import-flat --all` (automatically initializing new BCP-47 `lang/<code >.json` files with valid `__metadata__` and 4 tables when Weblate adds a new language), validates with Python and Gradle, and commits `lang/` to `main` with `[skip weblate-sync] [skip ci]`.
+   1. **On Pull Request (`pull_request` touching `i18n/weblate/*.json` or `i18n/weblate-template.json`):** Runs with `contents: read` (works on both Hosted Weblate PRs and external fork PRs without 403 errors or branch push conflicts against Weblate), compiles `i18n/weblate/*.json` in the runner workspace (`import-flat --all`), runs `i18n/validate_dictionaries.py --summary-file "$GITHUB_STEP_SUMMARY"`, and runs `gradle :patches:validateDictionaries --no-daemon`.
+   2. **After Merge to `main` (`push` to `main` touching `i18n/weblate/*.json` or `i18n/weblate-template.json`):** Runs `import-flat --all` (automatically initializing new BCP-47 `lang/<code>.json` files with valid `__metadata__` and 4 tables when Weblate adds a new language), validates with Python and Gradle, and commits `lang/` to `main` with `[skip weblate-sync] [skip ci]`.
 4. **Validation Separation:** `.github/workflows/validate-translations.yml` excludes `!i18n/weblate/**` so Weblate PRs never run duplicate or uncompiled checks.
 5. **Local Bridge Commands (Optional Manual Testing):**
 
 ```powershell
-python i18n/lang_helper.py export-flat --all --flat-dir i18n/weblate
-python i18n/lang_helper.py import-flat --all --flat-dir i18n/weblate
+python i18n/lang_helper.py export-flat --all --flat-dir i18n/weblate --flat-template i18n/weblate-template.json
+python i18n/lang_helper.py import-flat --all --flat-dir i18n/weblate --flat-template i18n/weblate-template.json
 python i18n/validate_dictionaries.py
 ```
 
@@ -60,12 +60,12 @@ python i18n/validate_dictionaries.py
 | Repository branch | `main` | Primary release and CI branch. |
 | Version control push / PR mode | `GitHub Pull Request` (via Hosted Weblate App) | Opens PRs instead of direct pushes so CI validates every change first. |
 | File format | `JSON` (`json`) | Use flat `JSON`, **not** `JSON nested structure`, so `res.*`, `libre.*`, and `txt.*` keys stay single-level. |
-| File mask | `i18n/weblate/*.json` | Matches all exported language packs in the flat bridge folder. |
-| Monolingual base language file | `i18n/weblate/_template_zh.json` | Canonical Simplified Chinese source strings (`3,836` keys). |
+| File mask | `i18n/weblate/*.json` | Matches only exported target language packs inside the flat bridge folder. |
+| Monolingual base language file | `i18n/weblate-template.json` | Canonical Simplified Chinese source strings (`3,836` keys), kept outside `i18n/weblate/` so `i18n/weblate/*.json` matches only valid BCP-47 target locales. |
 | Source language | `Chinese (Simplified)` (`zh_Hans`) | Matches base file language. |
 | Edit base file | `Off` (unchecked) | Source strings are generated only from the host APK `画世界Pro`. |
 | Template for new translations | *(Leave empty)* | New languages start empty instead of copying Chinese source strings as fake translations. |
-| Language filter | `^(?!_template_zh$).+$` | Excludes `_template_zh.json` from appearing as a target translation language. |
+| Language filter | `^[^.]+$` | Weblate default filter; safe to use directly because `_template_zh.json` is no longer inside `i18n/weblate/`. |
 | Language code style | `BCP style` (hyphen separator) | Writes `pt-BR.json` and `zh-Hant.json`; `lang_helper.py` also normalizes underscores as fallback. |
 | Quality checks / Format flags | Enable `printf` (`c_format`), `XML markup`, `Unchanged translation` | Enforce `printf` and XML/HTML checks; keep `Unchanged translation` as non-blocking warning (`RGB`, `画世界Pro`). |
 | Adding new translation | `Open` / `Create new language` enabled | Allows contributors to start new languages directly; `import-flat` builds the 4-table file after merge. |
