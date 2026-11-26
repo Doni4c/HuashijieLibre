@@ -31,7 +31,7 @@ private val draftStorageInitViewFingerprint = Fingerprint(
 @Suppress("unused")
 val hsjFilePathDisplayPatch = bytecodePatch(
     name = "HSJ File Path Display",
-    description = "Displays clear local .hsj draft and export storage directory cards inside DraftStorageSettingActivity for easy manual backup.",
+    description = "Shows the active local .hsj draft and export folder paths inside Draft Storage Settings.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

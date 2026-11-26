@@ -45,7 +45,7 @@ private fun resolveLastBooleanParamRegister(method: app.morphe.patcher.util.prox
 @Suppress("unused")
 val watermarkFreeTimelapsePatch = bytecodePatch(
     name = "Watermark Free Timelapse Export",
-    description = "Removes the brand watermark overlay during ReplayActivity preview and speedpaint video export while preserving video quality.",
+    description = "Removes the corner brand watermark during timelapse playback and video export.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

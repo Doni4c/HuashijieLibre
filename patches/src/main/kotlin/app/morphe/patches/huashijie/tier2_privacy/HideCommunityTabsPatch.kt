@@ -27,7 +27,7 @@ private val mainActivityInitViewFingerprint = Fingerprint(
 @Suppress("unused")
 val hideCommunityTabsPatch = bytecodePatch(
     name = "Hide Community Tabs",
-    description = "Hides the domestic community and discovery tabs on MainActivity with View.GONE while keeping the local draft workspace visible.",
+    description = "Hides the community and discovery tabs on the home screen, leaving only local drafts.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

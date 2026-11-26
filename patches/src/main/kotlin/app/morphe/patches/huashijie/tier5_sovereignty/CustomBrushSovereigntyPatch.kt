@@ -23,7 +23,7 @@ private const val OP_SHOULD_ALLOW_BRUSH_EDITING = 50
 @Suppress("unused")
 val customBrushSovereigntyPatch = bytecodePatch(
     name = "Custom Brush Sovereignty",
-    description = "Unlocks full offline parameter editing, renaming, and duplicating for all preset and imported local brushes without account ownership checks.",
+    description = "Allows editing, renaming, and duplicating preset and imported brushes without account ownership checks.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

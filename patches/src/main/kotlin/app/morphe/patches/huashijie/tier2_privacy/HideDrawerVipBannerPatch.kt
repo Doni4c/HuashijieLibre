@@ -23,7 +23,7 @@ private val mainDrawerLayoutShowFingerprint = exactClassMethodFingerprint(
 @Suppress("unused")
 val hideDrawerVipBannerPatch = bytecodePatch(
     name = "Hide Drawer VIP Banner",
-    description = "Safely hides the promotional VIP membership banner inside the main navigation drawer with View.GONE.",
+    description = "Hides the VIP membership banner in the navigation drawer.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

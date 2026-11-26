@@ -13,7 +13,7 @@ private const val SHOULD_BLOCK_BUGLY =
 @Suppress("unused")
 val blockBuglySdkPatch = bytecodePatch(
     name = "Block Bugly Crash SDK",
-    description = "Prevents Tencent Bugly remote crash reporting SDK from initializing in the background.",
+    description = "Disables Tencent Bugly remote crash reporting initialization.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

@@ -36,7 +36,7 @@ private val draftAdapter2BindFingerprint = Fingerprint(
 @Suppress("unused")
 val hideDraftCloudBadgePatch = bytecodePatch(
     name = "Hide Draft Cloud Badge",
-    description = "Hides the 9 cloud sync status badges and progress strips on draft artwork thumbnails in DraftAdapter and DraftAdapter2.",
+    description = "Hides cloud sync status icons and progress bars on draft thumbnails.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

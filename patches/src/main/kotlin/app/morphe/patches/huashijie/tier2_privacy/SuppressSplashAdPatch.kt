@@ -20,7 +20,7 @@ private const val STARTUP_LIFECYCLE_CONTROLLER =
 @Suppress("unused")
 val suppressSplashAdPatch = bytecodePatch(
     name = "Suppress Splash Ad Loading",
-    description = "Blocks splash advertisement ad slot loading checks inside FlashActivity independently of Instant Launch.",
+    description = "Blocks startup splash ad requests independently of Instant Launch to Studio.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

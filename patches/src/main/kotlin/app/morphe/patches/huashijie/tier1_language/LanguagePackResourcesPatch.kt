@@ -10,7 +10,7 @@ private object LanguagePackResourceAnchor
 @Suppress("unused")
 val languagePackResourcesPatch = rawResourcePatch(
     name = "Language Pack Resources",
-    description = "Bundles built-in localization dictionaries (English and Chinese source) and supports extensible community language packs.",
+    description = "Bundles built-in Vietnamese, English, and Simplified Chinese JSON dictionaries inside the APK.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch)

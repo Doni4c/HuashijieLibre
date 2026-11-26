@@ -30,7 +30,7 @@ private const val OP_ON_LIUYEBI_INIT = 77
 @Suppress("unused")
 val canvasPopupLayoutPolishPatch = bytecodePatch(
     name = "Canvas Popup Geometric Polish",
-    description = "Compacts empty popup scroll cushions, centers button clusters, and balances PaintActivity popup dimensions and floating reference headers.",
+    description = "Adjusts spacing in canvas popups and reference windows and adapts the left tool grid between portrait and landscape columns.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

@@ -21,7 +21,7 @@ private const val OP_HIDE_BRUSH_LIBRARY_SHOP = 16
 @Suppress("unused")
 val hideBrushLibraryShopPatch = bytecodePatch(
     name = "Hide Brush Library Shop",
-    description = "Hides the online brush shop button inside the full Brush Library modal independently from the canvas pen picker.",
+    description = "Hides the online store button inside the full-screen Brush Library modal.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

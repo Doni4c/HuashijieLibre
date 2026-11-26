@@ -49,7 +49,7 @@ private val mainDrawerLayoutShowFingerprint = exactClassMethodFingerprint(
 @Suppress("unused")
 val localArtistProfilePatch = bytecodePatch(
     name = "Local Artist Profile",
-    description = "Maintains an offline artist profile in memory so local tools such as PDF export work smoothly without domestic phone login prompts.",
+    description = "Provides an offline profile in memory when signed out so login-gated local tools such as PDF export work without signing in.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

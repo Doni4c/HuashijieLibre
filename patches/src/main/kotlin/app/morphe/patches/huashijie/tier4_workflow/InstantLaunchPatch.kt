@@ -38,7 +38,7 @@ private val flashOnCreateFingerprint = Fingerprint(
 @Suppress("unused")
 val instantLaunchPatch = bytecodePatch(
     name = "Instant Launch to Studio",
-    description = "Skips the splash countdown on FlashActivity and preloads the brush engine directly into the draft gallery.",
+    description = "Skips the startup countdown screen into the draft gallery while preserving external file open intents.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

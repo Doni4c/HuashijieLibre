@@ -82,10 +82,10 @@ public final class LibreSettingsInjector {
     private static final String DOCS_README_URL = GITHUB_REPO_URL + "/blob/main/README.md";
     private static final String DOCS_TRANSLATING_URL = GITHUB_REPO_URL + "/blob/main/TRANSLATING.md";
 
-    private static final String DEFAULT_SUBTITLE_ZH = "纯净本地画室，多语言与操作优化";
+    private static final String DEFAULT_SUBTITLE_ZH = "多语言界面、字体替换、隐藏联网入口与画布操作";
     private static final String DEFAULT_SYSTEM_FONT_ZH = "系统默认字体";
     private static final String DEFAULT_CUSTOM_FONT_DESC_ZH =
-            "读取 HuashijiePro/fonts/ 内的 .ttf 或 .otf 字体文件并即时应用到界面。选回系统默认即可恢复。";
+            "应用 HuashijiePro/fonts/ 内的 .ttf 或 .otf 字体文件。选回系统默认即可恢复。";
 
     private static final AtomicBoolean sUpdateCheckInFlight = new AtomicBoolean(false);
     private static final Set<String> sRegisteredToggles = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -756,7 +756,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_dynamic_i18n", "动态界面翻译"),
                     TranslationEngine.get("libre_desc_dynamic_i18n",
-                            "将菜单与工具即时切换为选定语言，并支持加载外置语言包。关闭后恢复原版中文。"),
+                            "使用内置或外置 JSON 语言包替换界面文字。关闭后恢复原版中文。"),
                     config.isEnabled(LibreConfig.KEY_DYNAMIC_I18N, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -813,7 +813,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_text_auto_fit", "窄按钮文字自动适配"),
                     TranslationEngine.get("libre_desc_text_auto_fit",
-                            "在较长语言下自动缩放窄按钮文字并对齐排版，避免截断。关闭后恢复原始大小。"),
+                            "自动缩小或换行窄按钮和标签页中的长文本，防止截断。关闭后恢复原版字号。"),
                     config.isEnabled(LibreConfig.KEY_TEXT_AUTO_FIT, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_TEXT_AUTO_FIT, isChecked));
@@ -821,9 +821,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_CANVAS_POPUP_POLISH)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_canvas_popup_polish", "弹窗与工具条几何精修"),
+                    TranslationEngine.get("libre_opt_canvas_popup_polish", "弹窗与工具条布局调整"),
                     TranslationEngine.get("libre_desc_canvas_popup_polish",
-                            "微调画布弹窗、参考图窗口与工具条比例，让隐藏项目后排版依然对称。关闭则沿用原布局。"),
+                            "调整画布弹窗、参考图窗口间距和左侧工具栏列数。关闭后恢复原版布局。"),
                     config.isEnabled(LibreConfig.KEY_CANVAS_POPUP_POLISH, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_CANVAS_POPUP_POLISH, isChecked));
@@ -831,9 +831,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_ENABLE_ANIMATIONS)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_enable_animations", "平滑过渡动画"),
+                    TranslationEngine.get("libre_opt_enable_animations", "设置页过渡动画"),
                     TranslationEngine.get("libre_desc_enable_animations",
-                            "打开设置页面时播放柔和滑动过渡效果。关闭后改为立即响应以追求干脆切换。"),
+                            "打开本设置页时播放滑动动画。关闭后直接显示页面。"),
                     config.isEnabled(LibreConfig.KEY_ENABLE_ANIMATIONS, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_ENABLE_ANIMATIONS, isChecked));
@@ -862,14 +862,14 @@ public final class LibreSettingsInjector {
             return;
         }
         addCategoryHeader(activity, contentList,
-                TranslationEngine.get("libre_cat_studio", "纯净创作空间"), colorHeader);
+                TranslationEngine.get("libre_cat_studio", "界面与联网项隐藏"), colorHeader);
         LinearLayout card = createCard(activity, contentList, colorCard, colorBorder);
 
         if (isToggleRegistered(LibreConfig.KEY_INSTANT_LAUNCH)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_instant_launch", "极速直达草稿画廊"),
+                    TranslationEngine.get("libre_opt_instant_launch", "跳过启动页直接进入草稿箱"),
                     TranslationEngine.get("libre_desc_instant_launch",
-                            "跳过启动等待，打开应用直接进入草稿画廊。关闭后恢复原版启动画面。"),
+                            "跳过启动倒计时，直接进入草稿箱。关闭后恢复原版启动画面。"),
                     config.isEnabled(LibreConfig.KEY_INSTANT_LAUNCH, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_INSTANT_LAUNCH, isChecked));
@@ -877,9 +877,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_SUPPRESS_SPLASH_AD)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_suppress_splash_ad", "屏蔽开屏广告加载"),
+                    TranslationEngine.get("libre_opt_suppress_splash_ad", "屏蔽开屏广告"),
                     TranslationEngine.get("libre_desc_suppress_splash_ad",
-                            "阻止启动时请求和展示开屏推广画面。关闭后恢复原版开屏广告逻辑。"),
+                            "阻止启动时请求和展示开屏广告。关闭后恢复原版开屏广告。"),
                     config.isEnabled(LibreConfig.KEY_SUPPRESS_SPLASH_AD, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_SUPPRESS_SPLASH_AD, isChecked));
@@ -889,7 +889,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_community", "隐藏社区与发现页"),
                     TranslationEngine.get("libre_desc_hide_community",
-                            "隐藏主界面中的社区和推荐分页，保留纯净本地画室。关闭并重启可恢复。"),
+                            "隐藏主界面中的社区和发现分页，仅保留本地草稿。关闭并重启后恢复。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_COMMUNITY_TABS, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -902,7 +902,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_drawer_vip", "隐藏侧边栏会员横幅"),
                     TranslationEngine.get("libre_desc_hide_drawer_vip",
-                            "收起首页抽屉里的会员推广卡片，减少误点。关闭可恢复显示。"),
+                            "隐藏首页侧边栏中的会员推广横幅。关闭后恢复显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_DRAWER_VIP, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_DRAWER_VIP, isChecked));
@@ -910,9 +910,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_HIDE_PERSONALIZED_ADS)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_hide_personalized_ads", "隐藏个性化广告选项"),
+                    TranslationEngine.get("libre_opt_hide_personalized_ads", "隐藏个性化广告开关"),
                     TranslationEngine.get("libre_desc_hide_personalized_ads",
-                            "隐藏常规设置中的广告推荐开关入口。关闭后恢复原本菜单条目。"),
+                            "隐藏通用设置中的个性化广告推荐条目。关闭后恢复显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_PERSONALIZED_ADS, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_PERSONALIZED_ADS, isChecked));
@@ -920,9 +920,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_HIDE_TOPBAR_CLOUD)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_hide_topbar_cloud", "隐藏画廊顶部云端按钮"),
+                    TranslationEngine.get("libre_opt_hide_topbar_cloud", "隐藏画廊顶部云同步按钮"),
                     TranslationEngine.get("libre_desc_hide_topbar_cloud",
-                            "隐藏画廊顶栏的云同步图标，防止误点触发登录提示。关闭即可恢复。"),
+                            "隐藏草稿箱顶栏的云同步按钮，避免点击触发登录窗口。关闭后恢复。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_TOPBAR_CLOUD, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_TOPBAR_CLOUD, isChecked));
@@ -932,7 +932,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_draft_cloud_tick", "隐藏草稿云同步角标"),
                     TranslationEngine.get("libre_desc_hide_draft_cloud_tick",
-                            "去掉草稿封面上的云状态小图标，完整展示缩略图内容。关闭可重新显示。"),
+                            "隐藏草稿缩略图上的云状态图标与进度条。关闭后恢复显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_DRAFT_CLOUD_TICK, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_DRAFT_CLOUD_TICK, isChecked));
@@ -942,7 +942,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_canvas_popup_cloud", "隐藏画布设置云同步页"),
                     TranslationEngine.get("libre_desc_hide_canvas_popup_cloud",
-                            "在画布右上角设置弹窗中隐藏云存档按钮和云图分页。关闭后恢复显示。"),
+                            "在画布设置弹窗中隐藏云存档按钮和云图分页。关闭后恢复显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_CANVAS_POPUP_CLOUD, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_CANVAS_POPUP_CLOUD, isChecked));
@@ -952,7 +952,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_canvas_exit_cloud", "隐藏退出画布云备份项"),
                     TranslationEngine.get("libre_desc_hide_canvas_exit_cloud",
-                            "退出画布时隐藏保存到云端的选项，只保留本地保存与丢弃。关闭恢复原状。"),
+                            "退出画布时隐藏上传到云端的选项，仅保留本地保存与丢弃。关闭后恢复。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_CANVAS_EXIT_CLOUD, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_CANVAS_EXIT_CLOUD, isChecked));
@@ -962,7 +962,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_baidu_backup", "隐藏百度网盘备份入口"),
                     TranslationEngine.get("libre_desc_hide_baidu_backup",
-                            "隐藏首页侧边栏里的百度网盘备份入口，让抽屉菜单更清爽。关闭并重启可重新显示。"),
+                            "隐藏首页侧边栏中的百度网盘备份入口。关闭并重启后显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_BAIDU_BACKUP, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -973,9 +973,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_OPTIMIZE_CREATE_CANVAS)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_optimize_create_canvas", "精简新建画布工具栏"),
+                    TranslationEngine.get("libre_opt_optimize_create_canvas", "隐藏新建画布在线模板"),
                     TranslationEngine.get("libre_desc_optimize_create_canvas",
-                            "隐藏在线模板入口并将自定义画布、像素与导入图片三项居中排布。关闭可恢复。"),
+                            "隐藏在线模板入口并将新建画布、像素与打开图片三项居中排布。关闭后恢复。"),
                     config.isEnabled(LibreConfig.KEY_OPTIMIZE_CREATE_CANVAS, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_OPTIMIZE_CREATE_CANVAS, isChecked));
@@ -983,9 +983,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_HIDE_BRUSH_SHOP)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_hide_brush_shop", "隐藏画笔面板商店按钮"),
+                    TranslationEngine.get("libre_opt_hide_brush_shop", "隐藏选笔弹窗商店按钮"),
                     TranslationEngine.get("libre_desc_hide_brush_shop",
-                            "隐藏选笔浮窗中的在线商店按钮，保留全部内置与本地画笔。关闭恢复按钮。"),
+                            "隐藏画布选笔弹窗中的在线商店按钮，保留全部内置与本地画笔。关闭后恢复。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_BRUSH_SHOP, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_BRUSH_SHOP, isChecked));
@@ -995,7 +995,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_hide_brush_library_shop", "隐藏笔刷库在线商店"),
                     TranslationEngine.get("libre_desc_hide_brush_library_shop",
-                            "仅在全屏笔刷库管理页隐藏商店入口。随时关闭即可重新显示。"),
+                            "在全屏笔刷库页面隐藏商店入口。关闭后恢复显示。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_BRUSH_LIBRARY_SHOP, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_BRUSH_LIBRARY_SHOP, isChecked));
@@ -1003,9 +1003,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_BLOCK_BRUSH_UPGRADE_TIP)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_block_brush_upgrade_tip", "屏蔽画笔升级气泡"),
+                    TranslationEngine.get("libre_opt_block_brush_upgrade_tip", "屏蔽画笔升级横幅"),
                     TranslationEngine.get("libre_desc_block_brush_upgrade_tip",
-                            "不再在选笔面板顶部弹出笔刷升级横幅。关闭可恢复显示推荐提醒。"),
+                            "隐藏选笔面板顶部的笔刷升级提示横幅。关闭后恢复显示。"),
                     config.isEnabled(LibreConfig.KEY_BLOCK_BRUSH_UPGRADE_TIP, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_BLOCK_BRUSH_UPGRADE_TIP, isChecked));
@@ -1026,14 +1026,14 @@ public final class LibreSettingsInjector {
             return;
         }
         addCategoryHeader(activity, contentList,
-                TranslationEngine.get("libre_cat_canvas", "画布与笔刷操控"), colorHeader);
+                TranslationEngine.get("libre_cat_canvas", "画布与笔刷操作"), colorHeader);
         LinearLayout card = createCard(activity, contentList, colorCard, colorBorder);
 
         if (isToggleRegistered(LibreConfig.KEY_TOUCH_OUTSIDE_DISMISS)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_touch_outside", "点选区外收起套索"),
+                    TranslationEngine.get("libre_opt_touch_outside", "点击选区外退出套索"),
                     TranslationEngine.get("libre_desc_touch_outside",
-                            "套索框选后轻点空白画布即可快速结束当前工具，长按与双指缩放不受影响。关闭恢复仅点按钮结束。"),
+                            "使用套索框选后，轻点选区外画布即可退出选区模式；不影响魔棒、多边形套索或对称透视工具。关闭后恢复仅按钮退出。"),
                     config.isEnabled(LibreConfig.KEY_TOUCH_OUTSIDE_DISMISS, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_TOUCH_OUTSIDE_DISMISS, isChecked));
@@ -1043,7 +1043,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_free_ref_rotation", "参考图双指自由旋转"),
                     TranslationEngine.get("libre_desc_free_ref_rotation",
-                            "直接在参考图悬浮窗内使用双指自由旋转构图，关闭恢复仅允许平移缩放。"),
+                            "在参考图悬浮窗内支持双指旋转，含 8 度防误触死区。关闭后恢复仅平移和缩放。"),
                     config.isEnabled(LibreConfig.KEY_FREE_REF_ROTATION, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_FREE_REF_ROTATION, isChecked));
@@ -1053,7 +1053,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_floating_sliders", "悬浮笔刷调节滑块"),
                     TranslationEngine.get("libre_desc_floating_sliders",
-                            "通过顶部把手将侧边粗细与透明度滑块拖到画布任意习惯位置。关闭则固定回侧边。"),
+                            "在画笔粗细与不透明度滑块上方添加 2x2 拖动手柄，可将滑块拖到画布任意位置。关闭后固定回侧边。"),
                     config.isEnabled(LibreConfig.KEY_FLOATING_BRUSH_SLIDERS, false),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_FLOATING_BRUSH_SLIDERS, isChecked));
@@ -1061,9 +1061,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_LOCAL_BRUSH_MANAGER)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_local_brush", "本地画笔自由管理"),
+                    TranslationEngine.get("libre_opt_local_brush", "免登录编辑本地画笔"),
                     TranslationEngine.get("libre_desc_local_brush",
-                            "免登录自由编辑、重命名和复制自制或导入的笔刷参数。关闭恢复原版归属限制。"),
+                            "无需登录即可编辑、重命名和复制内置及本地导入的画笔。关闭后恢复原版账号校验。"),
                     config.isEnabled(LibreConfig.KEY_LOCAL_BRUSH_MANAGER, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_LOCAL_BRUSH_MANAGER, isChecked));
@@ -1071,9 +1071,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_EXTERNAL_BRUSH_IMPORT)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_external_brush_import", "扫描导入本地外部笔刷"),
+                    TranslationEngine.get("libre_opt_external_brush_import", "扫描导入外部笔刷"),
                     TranslationEngine.get("libre_desc_external_brush_import",
-                            "自动读取 HuashijiePro/ASBrush 中的外部笔刷包并保持列表完整。关闭则停止自动扫描。"),
+                            "启动时扫描 HuashijiePro/ASBrush 中的外部笔刷文件并保留已导入笔刷。关闭后停止自动扫描。"),
                     config.isEnabled(LibreConfig.KEY_EXTERNAL_BRUSH_IMPORT, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_EXTERNAL_BRUSH_IMPORT, isChecked));
@@ -1081,9 +1081,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_OFFLINE_USER_STUB)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_offline_user", "离线创作者档案"),
+                    TranslationEngine.get("libre_opt_offline_user", "离线本地账号信息"),
                     TranslationEngine.get("libre_desc_offline_user",
-                            "在本机建立零联网创作者档案，免登录使用导出 PDF 等本地工具。关闭并重启还原未登录。"),
+                            "在未登录时提供内存中的本地资料，使 PDF 导出等本地功能免登录可用，不影响已登录账号。关闭并重启后恢复未登录。"),
                     config.isEnabled(LibreConfig.KEY_OFFLINE_USER_STUB, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -1120,7 +1120,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_clean_speedpaint", "无水印导出延时回放"),
                     TranslationEngine.get("libre_desc_clean_speedpaint",
-                            "生成纯净无角标水印的绘画过程视频，方便直接发布与归档。关闭保留右下角水印。"),
+                            "在回放预览和导出视频时移除角落水印。关闭后保留原版水印。"),
                     config.isEnabled(LibreConfig.KEY_CLEAN_SPEEDPAINT, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_CLEAN_SPEEDPAINT, isChecked));
@@ -1128,9 +1128,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_SYSTEM_SHARE)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_system_share", "调用系统原生分享面板"),
+                    TranslationEngine.get("libre_opt_system_share", "调用 Android 系统分享"),
                     TranslationEngine.get("libre_desc_system_share",
-                            "分享作品成图或 .hsj 工程时改用 Android 系统分享列表。关闭恢复内置社交分享菜单。"),
+                            "分享图片、PSD、PDF、画笔和 .hsj 工程时改用 Android 系统分享列表。关闭后恢复内置分享菜单。"),
                     config.isEnabled(LibreConfig.KEY_SYSTEM_SHARE, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_SYSTEM_SHARE, isChecked));
@@ -1140,7 +1140,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_replay_system_share", "回放页启用系统分享"),
                     TranslationEngine.get("libre_desc_replay_system_share",
-                            "在绘画回放界面直接调用系统分享传出延时视频。关闭恢复内置分享。"),
+                            "在绘画回放页导出视频时调用 Android 系统分享列表。关闭后恢复内置分享。"),
                     config.isEnabled(LibreConfig.KEY_REPLAY_SYSTEM_SHARE, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_REPLAY_SYSTEM_SHARE, isChecked));
@@ -1148,9 +1148,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_EXPORT_SHARE_BUTTON)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_export_share_button", "在导出面板显示系统分享按钮"),
+                    TranslationEngine.get("libre_opt_export_share_button", "在导出弹窗添加系统分享按钮"),
                     TranslationEngine.get("libre_desc_export_share_button",
-                            "在导出弹窗底部的相册和文件旁添加系统分享入口，一次点击即可把作品或延时视频发往外部应用。关闭后仅保留本地保存选项。"),
+                            "在图片和延时视频导出弹窗中，于相册与文件旁新增系统分享按钮。关闭后仅保留本地保存按钮。"),
                     config.isEnabled(LibreConfig.KEY_EXPORT_SHARE_BUTTON, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_EXPORT_SHARE_BUTTON, isChecked));
@@ -1158,9 +1158,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_HIDE_EXPORT_SOCIAL_ICONS)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_hide_domestic_export", "精简导出界面社交图标"),
+                    TranslationEngine.get("libre_opt_hide_domestic_export", "隐藏导出弹窗社交图标"),
                     TranslationEngine.get("libre_desc_hide_domestic_export",
-                            "隐藏导出弹窗底部 QQ、微信、微博等社交图标，保留相册与文件导出。关闭恢复。"),
+                            "隐藏图片导出弹窗底部的 QQ、微信、微博等图标，保留相册与文件保存。关闭后恢复。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_EXPORT_SOCIAL_ICONS, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_EXPORT_SOCIAL_ICONS, isChecked));
@@ -1168,9 +1168,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_hide_timelapse_social", "精简延时视频分享入口"),
+                    TranslationEngine.get("libre_opt_hide_timelapse_social", "隐藏延时视频社交图标"),
                     TranslationEngine.get("libre_desc_hide_timelapse_social",
-                            "仅隐藏延时视频导出弹窗中的社交图标，保留画质与本地保存。关闭即可还原。"),
+                            "隐藏延时视频导出弹窗中的社交图标，保留画质选择与本地保存。关闭后恢复。"),
                     config.isEnabled(LibreConfig.KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_HIDE_TIMELAPSE_EXPORT_SOCIAL, isChecked));
@@ -1178,9 +1178,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_PUBLIC_STORAGE)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_storage_transparency", "明确展示本地存储路径"),
+                    TranslationEngine.get("libre_opt_storage_transparency", "显示 .hsj 本地存储路径"),
                     TranslationEngine.get("libre_desc_storage_transparency",
-                            "直接提示工程草稿与导出文件的真实公开目录，方便手动备份。关闭恢复简化提示。"),
+                            "在草稿存储设置页顶部显示当前草稿与导出目录路径。关闭后隐藏该卡片。"),
                     config.isEnabled(LibreConfig.KEY_PUBLIC_STORAGE, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_PUBLIC_STORAGE, isChecked));
@@ -1190,7 +1190,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_canvas_hsj_path", "在画布信息显示 .hsj 目录"),
                     TranslationEngine.get("libre_desc_canvas_hsj_path",
-                            "在画布设置的图纸信息区新增一行展示工程存放目录。关闭则隐藏该行。"),
+                            "在画布设置弹窗的信息栏新增一行显示工程目录，点击可复制到剪贴板。关闭后隐藏该行。"),
                     config.isEnabled(LibreConfig.KEY_CANVAS_HSJ_PATH_ROW, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> config.setEnabled(LibreConfig.KEY_CANVAS_HSJ_PATH_ROW, isChecked));
@@ -1208,14 +1208,14 @@ public final class LibreSettingsInjector {
             return;
         }
         addCategoryHeader(activity, contentList,
-                TranslationEngine.get("libre_cat_privacy", "隐私与静默运行"), colorHeader);
+                TranslationEngine.get("libre_cat_privacy", "统计与异常上报"), colorHeader);
         LinearLayout card = createCard(activity, contentList, colorCard, colorBorder);
 
         if (isToggleRegistered(LibreConfig.KEY_BLOCK_TELEMETRY)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_block_telemetry", "拦截内置统计与推广服务"),
+                    TranslationEngine.get("libre_opt_block_telemetry", "停用内置日志上报库"),
                     TranslationEngine.get("libre_desc_block_telemetry",
-                            "跳过启动时附带的设备统计与广告唤醒服务，让软件安静离线运行。关闭并重启还原。"),
+                            "阻止启动时初始化 xCrash 与 MarsXlog 日志库。关闭并重启后恢复。"),
                     config.isEnabled(LibreConfig.KEY_BLOCK_TELEMETRY, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -1226,9 +1226,9 @@ public final class LibreSettingsInjector {
 
         if (isToggleRegistered(LibreConfig.KEY_BLOCK_UMENG_SDK)) {
             addSwitchWithDivider(activity, card, colorDivider,
-                    TranslationEngine.get("libre_opt_block_umeng_sdk", "停用友盟分析组件"),
+                    TranslationEngine.get("libre_opt_block_umeng_sdk", "停用友盟统计组件"),
                     TranslationEngine.get("libre_desc_block_umeng_sdk",
-                            "阻止友盟后台收集界面点击与操作统计。如需启用原版统计请关闭并重启。"),
+                            "阻止友盟组件初始化与后台事件采集。关闭并重启后恢复。"),
                     config.isEnabled(LibreConfig.KEY_BLOCK_UMENG_SDK, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -1241,7 +1241,7 @@ public final class LibreSettingsInjector {
             addSwitchWithDivider(activity, card, colorDivider,
                     TranslationEngine.get("libre_opt_block_bugly_sdk", "停用 Bugly 异常上报"),
                     TranslationEngine.get("libre_desc_block_bugly_sdk",
-                            "跳过崩溃日志自动联网上传以减少后台连接。关闭并重启可重新启用。"),
+                            "阻止 Tencent Bugly 崩溃上报初始化。关闭并重启后恢复。"),
                     config.isEnabled(LibreConfig.KEY_BLOCK_BUGLY_SDK, true),
                     colorTextPrimary, colorTextSecondary,
                     (btn, isChecked) -> {
@@ -1308,12 +1308,12 @@ public final class LibreSettingsInjector {
         if (activity == null || activity.isFinishing()) return;
         if (!sUpdateCheckInFlight.compareAndSet(false, true)) {
             Toast.makeText(activity,
-                    TranslationEngine.get("libre_update_checking", "正在检查更新，请稍候..."),
+                    TranslationEngine.get("libre_update_checking", "正在检查更新..."),
                     Toast.LENGTH_SHORT).show();
             return;
         }
         Toast.makeText(activity,
-                TranslationEngine.get("libre_update_checking", "正在检查更新，请稍候..."),
+                TranslationEngine.get("libre_update_checking", "正在检查更新..."),
                 Toast.LENGTH_SHORT).show();
 
         final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -1380,7 +1380,7 @@ public final class LibreSettingsInjector {
                 String detail;
                 if (httpCode == 404) {
                     detail = TranslationEngine.get("libre_update_no_release",
-                            "仓库中暂未发布公开版本，可前往发布页面查看最新进展。");
+                            "GitHub 暂未发布公开版本。");
                 } else {
                     String fmt = TranslationEngine.get("libre_update_error_body",
                             "无法连接到 GitHub（%1$s），请检查网络后重试或直接在浏览器查看。");
@@ -1455,9 +1455,9 @@ public final class LibreSettingsInjector {
         try {
             String title = TranslationEngine.get("libre_credits_title", "致谢");
             String body = TranslationEngine.get("libre_credits_body",
-                    "1. 项目作者与维护：Doni4c（HuashijieLibre）\n"
-                            + "2. 应用内修补框架：Morphe\n"
-                            + "3. 参与多语言翻译与实机体验测试的社区画师与贡献者");
+                    "1. 作者与维护：Doni4c（HuashijieLibre）\n"
+                            + "2. 修补框架：Morphe\n"
+                            + "3. 参与翻译与测试的社区贡献者");
             AlertDialog dlg = newThemedAlertBuilder(activity, isNight)
                     .setTitle(title)
                     .setMessage(body)
@@ -1477,13 +1477,12 @@ public final class LibreSettingsInjector {
             String title = TranslationEngine.get("libre_docs_license_title", "使用文档与开源协议");
             String body = TranslationEngine.get("libre_docs_license_body",
                     "开源许可：GNU General Public License v3.0（GPL-3.0）\n"
-                            + "你可以自由查阅项目源代码、自行编译修补包，并在同等开源协议下分享修改。\n\n"
-                            + "应用内使用的开源组件：\n"
-                            + "1. Morphe（应用内扩展与修补框架）\n\n"
-                            + "使用文档与本地目录：\n"
-                            + "2. 项目主页提供完整使用说明与自制语言包指南\n"
-                            + "3. 语言包目录：/sdcard/HuashijiePro/lang/\n"
-                            + "4. 字体目录：/sdcard/HuashijiePro/fonts/");
+                            + "可自由查阅源码、自行编译并在相同协议下分发修改版本。\n\n"
+                            + "内置开源组件：\n"
+                            + "1. Morphe（应用内修补与扩展框架）\n\n"
+                            + "本地目录：\n"
+                            + "2. 语言包目录：/sdcard/HuashijiePro/lang/\n"
+                            + "3. 字体目录：/sdcard/HuashijiePro/fonts/");
             AlertDialog dlg = newThemedAlertBuilder(activity, isNight)
                     .setTitle(title)
                     .setMessage(body)
@@ -2005,7 +2004,7 @@ public final class LibreSettingsInjector {
         banner.setLayoutParams(params);
 
         TextView tvMsg = new TextView(activity);
-        tvMsg.setText(TranslationEngine.get("libre_banner_restart_needed", "部分修改将在重启应用后完全生效"));
+        tvMsg.setText(TranslationEngine.get("libre_banner_restart_needed", "部分更改需重启应用后生效"));
         tvMsg.setTextColor(isNight ? Color.parseColor("#FFD54F") : Color.parseColor("#B06000"));
         tvMsg.setTextSize(12.0f);
         LinearLayout.LayoutParams textParams =

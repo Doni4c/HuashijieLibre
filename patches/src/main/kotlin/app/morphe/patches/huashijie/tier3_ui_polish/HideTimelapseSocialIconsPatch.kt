@@ -33,7 +33,7 @@ private val exportPicture3CreateViewFingerprint = Fingerprint(
 @Suppress("unused")
 val hideTimelapseSocialIconsPatch = bytecodePatch(
     name = "Hide Timelapse Export Social Icons",
-    description = "Hides domestic social sharing buttons inside the timelapse video export panel while keeping local save and resolution choices intact.",
+    description = "Hides domestic social channel buttons in the timelapse export dialog while keeping save and quality options.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

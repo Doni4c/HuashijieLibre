@@ -13,7 +13,7 @@ private const val SHOULD_BLOCK_UMENG =
 @Suppress("unused")
 val blockUmengSdkPatch = bytecodePatch(
     name = "Block Umeng Analytics SDK",
-    description = "Prevents Umeng UMConfigure analytics and device tracking routines from initializing.",
+    description = "Disables Umeng analytics initialization and background event collection.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

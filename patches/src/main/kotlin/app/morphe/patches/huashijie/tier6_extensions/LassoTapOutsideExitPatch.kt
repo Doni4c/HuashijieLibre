@@ -28,7 +28,7 @@ private val paintDispatchTouchFingerprint = Fingerprint(
 @Suppress("unused")
 val lassoTapOutsideExitPatch = bytecodePatch(
     name = "Lasso Tap-Outside Exit",
-    description = "Lets artists tap once outside an active Lasso or selection area to confirm and exit selection mode back to the brush.",
+    description = "Exits active Lasso selection with a single tap outside the selection while preserving Magic Wand, Polygonal Lasso, Move/Transform, and active guide bars.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

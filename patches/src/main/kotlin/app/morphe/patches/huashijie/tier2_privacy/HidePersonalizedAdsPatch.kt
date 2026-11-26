@@ -18,7 +18,7 @@ private const val WORKSPACE_UI_CONTROLLER =
 @Suppress("unused")
 val hidePersonalizedAdsPatch = bytecodePatch(
     name = "Hide Personalized Ads Setting",
-    description = "Safely hides the domestic personalized ads preference row inside GeneralSettingActivity with View.GONE.",
+    description = "Hides the personalized advertising switch in General Settings.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

@@ -9,7 +9,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 patches {
     about {
         name = "HuashijieLibre Patches"
-        description = "Open-source Morphe patches for HuashijiePro (net.huanci.hsjpro v3.4.6): dynamic localization, studio decluttering, offline artist profile, and UX ergonomics."
+        description = "Morphe patches for 画世界Pro (net.huanci.hsjpro v3.4.6): JSON UI translations, custom fonts, offline access to login-gated tools, and canvas controls."
         source = "https://github.com/Doni4c/HuashijieLibre"
         author = "Doni4c"
         contact = "https://github.com/Doni4c/HuashijieLibre/issues"

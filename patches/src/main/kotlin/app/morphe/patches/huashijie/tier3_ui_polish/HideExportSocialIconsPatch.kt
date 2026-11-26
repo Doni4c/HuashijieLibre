@@ -308,7 +308,7 @@ internal fun BytecodePatchContext.ensureExportAdapterShareHooksInjected() {
 @Suppress("unused")
 val hideExportSocialIconsPatch = bytecodePatch(
     name = "Hide Domestic Export Social Icons",
-    description = "Hides domestic social sharing channels in ExportPictureView and PaintActivity export popups via TranslationEngine.dispatch.",
+    description = "Hides domestic social channel rows in the image export dialog while keeping local save actions.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

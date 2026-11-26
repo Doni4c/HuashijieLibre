@@ -203,7 +203,7 @@ public final class GlobalCompatibilityController {
             shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
             String chooserTitle = TranslationEngine.get(
-                    "libre_share_chooser_title", "\u753b\u4e16\u754c Libre\uff1a\u5206\u4eab\u4f5c\u54c1");
+                    "libre_share_chooser_title", "HuashijieLibre: \u5206\u4eab\u4f5c\u54c1");
             Intent chooser = Intent.createChooser(shareIntent, chooserTitle);
             chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             activity.startActivity(chooser);

@@ -82,7 +82,7 @@ private val commonDialogOnStartFingerprint = Fingerprint(
 @Suppress("unused")
 val textAutoFitPatch = bytecodePatch(
     name = "Narrow Button Text Auto Fit",
-    description = "Scales text sizes and handles wrapping cleanly on narrow tabs, buttons, and dialogs for longer translated labels across non-Chinese scripts.",
+    description = "Scales and wraps localized labels inside narrow buttons, tabs, and dialogs to prevent clipping.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

@@ -46,7 +46,7 @@ private fun hookPopupPathRow(method: MutableMethod) {
 @Suppress("unused")
 val canvasPopupPathRowPatch = bytecodePatch(
     name = "Canvas Popup HSJ Path Row",
-    description = "Appends a tap to toast local .hsj project folder row inside the PaintActivity canvas info panel.",
+    description = "Adds the active .hsj draft folder path inside the canvas settings tab with tap-to-copy clipboard support.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

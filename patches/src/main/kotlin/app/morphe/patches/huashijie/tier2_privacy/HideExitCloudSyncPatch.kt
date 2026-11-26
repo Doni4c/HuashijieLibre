@@ -33,7 +33,7 @@ private val paintOnBackPressedFingerprint = Fingerprint(
 @Suppress("unused")
 val hideExitCloudSyncPatch = bytecodePatch(
     name = "Hide Exit Cloud Sync Option",
-    description = "Hides the domestic cloud sync switch and storage notice inside the canvas exit confirmation dialog while preserving local save and exit actions.",
+    description = "Hides cloud upload options in the canvas exit dialog while keeping local save and discard actions.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

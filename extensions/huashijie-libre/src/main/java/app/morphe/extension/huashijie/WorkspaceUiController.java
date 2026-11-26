@@ -1142,15 +1142,15 @@ public final class WorkspaceUiController {
                 infoBox.setPadding(pad, pad, pad, Math.round(8 * density));
 
                 TextView tvHeader = new TextView(activity);
-                tvHeader.setText(TranslationEngine.get("libre_storage_box_title", "\u753b\u4e16\u754c Libre\uff1a\u5de5\u7a0b\u5b58\u50a8\u8def\u5f84 (.hsj)"));
+                tvHeader.setText(TranslationEngine.get("libre_storage_box_title", "HuashijieLibre: \u5de5\u7a0b\u5b58\u50a8\u8def\u5f84 (.hsj)"));
                 tvHeader.setTextColor(isDark ? Color.parseColor("#E0E0E0") : Color.parseColor("#1A1A1A"));
                 tvHeader.setTextSize(14.0f);
                 tvHeader.setTypeface(null, android.graphics.Typeface.BOLD);
 
                 String draftPrefix = extractLabelPrefix(TranslationEngine.get(
-                        "libre_storage_box_draft", "\u672c\u5730\u8349\u7a3f\u76ee\u5f55\uff1a/storage/emulated/0/HuashijiePro/Draft/"));
+                        "libre_storage_box_draft", "\u672c\u5730\u8349\u7a3f\u76ee\u5f55: /storage/emulated/0/HuashijiePro/Draft/"));
                 String exportPrefix = extractLabelPrefix(TranslationEngine.get(
-                        "libre_storage_box_export", "\u5de5\u7a0b\u5bfc\u51fa\u76ee\u5f55\uff1a/storage/emulated/0/HuashijiePro/exportDrafts/"));
+                        "libre_storage_box_export", "\u5de5\u7a0b\u5bfc\u51fa\u76ee\u5f55: /storage/emulated/0/HuashijiePro/exportDrafts/"));
                 String realDraftDir = resolveActiveDraftDirectory(activity);
                 String realExportDir = resolveActiveExportDraftDirectory(activity);
 

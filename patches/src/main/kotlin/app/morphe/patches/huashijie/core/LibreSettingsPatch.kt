@@ -502,7 +502,7 @@ internal fun BytecodePatchContext.ensureBrushPkgManagerGetListHooked() {
 @Suppress("unused")
 val libreSettingsPatch = bytecodePatch(
     name = "Libre In App Settings Panel",
-    description = "Adds the HuashijieLibre settings panel inside General Settings so you can tune options anytime.",
+    description = "Adds the HuashijieLibre settings menu inside General Settings with update checks, credits, license info, and diagnostics export.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch)

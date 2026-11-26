@@ -15,7 +15,7 @@ private const val TOGGLE_KEY = "libre_replay_system_share"
 @Suppress("unused")
 val replayAndroidShareSheetPatch = bytecodePatch(
     name = "Replay Android Share Sheet",
-    description = "Routes timelapse export sharing inside ReplayActivity to the Android System Share Sheet instead of ShareSDK.",
+    description = "Routes timelapse video exports on the replay screen through the standard Android Share Sheet.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

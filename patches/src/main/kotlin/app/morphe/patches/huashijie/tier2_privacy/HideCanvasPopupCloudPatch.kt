@@ -17,7 +17,7 @@ private const val WORKSPACE_UI_CONTROLLER =
 @Suppress("unused")
 val hideCanvasPopupCloudPatch = bytecodePatch(
     name = "Hide Canvas Popup Cloud Sync",
-    description = "Hides the cloud draft button and cloud sync tab inside the PaintActivity canvas settings popup and rebalances remaining controls.",
+    description = "Hides cloud backup controls and the cloud tab inside the canvas settings popup.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

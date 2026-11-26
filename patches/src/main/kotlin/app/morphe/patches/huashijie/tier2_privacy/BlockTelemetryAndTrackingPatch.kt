@@ -151,7 +151,7 @@ internal fun BytecodePatchContext.guardVoidSdkMethods(
 @Suppress("unused")
 val blockTelemetryAndTrackingPatch = bytecodePatch(
     name = "Block Host Telemetry SDKs",
-    description = "Prevents xCrash and MarsXlog native crash and logging libraries from initializing in FlashActivity.",
+    description = "Stops the built-in xCrash and MarsXlog logging libraries from initializing at startup.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

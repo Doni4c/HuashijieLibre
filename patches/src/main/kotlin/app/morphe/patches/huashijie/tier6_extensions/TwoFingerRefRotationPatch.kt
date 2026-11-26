@@ -143,7 +143,7 @@ private val referenceModelIsAllowRotateFingerprint = Fingerprint(
 @Suppress("unused")
 val twoFingerRefRotationPatch = bytecodePatch(
     name = "Two-Finger Reference Rotation",
-    description = "Unlocks smooth two-finger free rotation inside the floating reference image window.",
+    description = "Enables two-finger rotation inside the floating reference window with an 8-degree anti-tilt deadzone during pinch zoom.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

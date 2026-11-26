@@ -1440,7 +1440,7 @@ private fun BytecodePatchContext.hookD3ArrowBitmaps() {
 @Suppress("unused")
 val dynamicTranslationPatch = bytecodePatch(
     name = "Dynamic External Translation Engine",
-    description = "Translates the HuashijiePro studio interface from external JSON packs with instant switching.",
+    description = "Translates UI strings at runtime from bundled or external JSON packs while keeping filesystem folder names untranslated.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch, languagePackResourcesPatch)

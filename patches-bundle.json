@@ -1,6 +1,6 @@
 {
   "created_at": "2026-11-22T16:00:00",
-  "description": "HuashijieLibre: 38 atomic Morphe patches for HuashijiePro v3.4.6 featuring dynamic localization, studio decluttering, offline artist profile, and canvas workflow ergonomics.",
+  "description": "Morphe patches for 画世界Pro v3.4.6: JSON UI translations, custom fonts, offline access to login-gated tools, and canvas controls.",
   "download_url": "https://github.com/Doni4c/HuashijieLibre/releases/download/v1.0.0-beta.2/patches-1.0.0-beta.2.mpp",
   "signature_download_url": "",
   "version": "1.0.0-beta.2"

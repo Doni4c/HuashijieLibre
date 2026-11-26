@@ -38,7 +38,7 @@ private val paintActivityInitViewFingerprint = Fingerprint(
 @Suppress("unused")
 val floatingBrushSliderPatch = bytecodePatch(
     name = "Floating Brush Sliders",
-    description = "Adds a draggable grip handle above the brush size and opacity sliders so artists can reposition them freely.",
+    description = "Adds a 2x2 drag handle between the brush size and opacity sliders to reposition them and compact landscape sidebars.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

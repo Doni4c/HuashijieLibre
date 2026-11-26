@@ -6,7 +6,7 @@
   "patches": [
     {
       "name": "Block Brush Upgrade Tip",
-      "description": "Silences promotional brush upgrade banners and tooltips in SelectPenView while routing classes4.dex through TranslationEngine.dispatch.",
+      "description": "Hides brush upgrade banners inside the brush selector.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -38,7 +38,7 @@
     },
     {
       "name": "Block Bugly Crash SDK",
-      "description": "Prevents Tencent Bugly remote crash reporting SDK from initializing in the background.",
+      "description": "Disables Tencent Bugly remote crash reporting initialization.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -70,7 +70,7 @@
     },
     {
       "name": "Block Host Telemetry SDKs",
-      "description": "Prevents xCrash and MarsXlog native crash and logging libraries from initializing in FlashActivity.",
+      "description": "Stops the built-in xCrash and MarsXlog logging libraries from initializing at startup.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -102,7 +102,7 @@
     },
     {
       "name": "Block Umeng Analytics SDK",
-      "description": "Prevents Umeng UMConfigure analytics and device tracking routines from initializing.",
+      "description": "Disables Umeng analytics initialization and background event collection.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -134,7 +134,7 @@
     },
     {
       "name": "Canvas Popup Geometric Polish",
-      "description": "Compacts empty popup scroll cushions, centers button clusters, and balances PaintActivity popup dimensions and floating reference headers.",
+      "description": "Adjusts spacing in canvas popups and reference windows and adapts the left tool grid between portrait and landscape columns.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -166,7 +166,7 @@
     },
     {
       "name": "Canvas Popup HSJ Path Row",
-      "description": "Appends a tap to toast local .hsj project folder row inside the PaintActivity canvas info panel.",
+      "description": "Adds the active .hsj draft folder path inside the canvas settings tab with tap-to-copy clipboard support.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -198,7 +198,7 @@
     },
     {
       "name": "Custom Brush Sovereignty",
-      "description": "Unlocks full offline parameter editing, renaming, and duplicating for all preset and imported local brushes without account ownership checks.",
+      "description": "Allows editing, renaming, and duplicating preset and imported brushes without account ownership checks.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -230,7 +230,7 @@
     },
     {
       "name": "Custom UI Font Injection",
-      "description": "Applies your chosen .ttf or .otf fonts from /sdcard/HuashijiePro/fonts/ across the app while keeping bold and italic styles.",
+      "description": "Applies .ttf or .otf fonts from /sdcard/HuashijiePro/fonts/ across the UI while keeping bold and italic styles.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -262,7 +262,7 @@
     },
     {
       "name": "Dynamic External Translation Engine",
-      "description": "Translates the HuashijiePro studio interface from external JSON packs with instant switching.",
+      "description": "Translates UI strings at runtime from bundled or external JSON packs while keeping filesystem folder names untranslated.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -295,7 +295,7 @@
     },
     {
       "name": "Export Sheet Share Button",
-      "description": "Adds a standalone Android System Share button next to Album and File inside the export sheet for both artwork and timelapse videos.",
+      "description": "Adds a System Share button beside Album and File inside the image and timelapse export dialogs.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -327,7 +327,7 @@
     },
     {
       "name": "External Local Brush Scanning",
-      "description": "Scans local ASBrush directories on startup and guards loaded brush package lists for offline brush import workflows.",
+      "description": "Scans /sdcard/HuashijiePro/ASBrush on startup and keeps imported brush sets available offline.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -359,7 +359,7 @@
     },
     {
       "name": "Floating Brush Sliders",
-      "description": "Adds a draggable grip handle above the brush size and opacity sliders so artists can reposition them freely.",
+      "description": "Adds a 2x2 drag handle between the brush size and opacity sliders to reposition them and compact landscape sidebars.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -391,7 +391,7 @@
     },
     {
       "name": "HSJ File Path Display",
-      "description": "Displays clear local .hsj draft and export storage directory cards inside DraftStorageSettingActivity for easy manual backup.",
+      "description": "Shows the active local .hsj draft and export folder paths inside Draft Storage Settings.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -423,7 +423,7 @@
     },
     {
       "name": "Hide Baidu Cloud Backup Entry",
-      "description": "Safely hides the domestic third-party Baidu Netdisk backup entry inside the main navigation drawer with View.GONE.",
+      "description": "Hides the Baidu Netdisk backup entry in the navigation drawer.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -455,7 +455,7 @@
     },
     {
       "name": "Hide Brush Library Shop",
-      "description": "Hides the online brush shop button inside the full Brush Library modal independently from the canvas pen picker.",
+      "description": "Hides the online store button inside the full-screen Brush Library modal.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -487,7 +487,7 @@
     },
     {
       "name": "Hide Canvas Popup Cloud Sync",
-      "description": "Hides the cloud draft button and cloud sync tab inside the PaintActivity canvas settings popup and rebalances remaining controls.",
+      "description": "Hides cloud backup controls and the cloud tab inside the canvas settings popup.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -519,7 +519,7 @@
     },
     {
       "name": "Hide Community Tabs",
-      "description": "Hides the domestic community and discovery tabs on MainActivity with View.GONE while keeping the local draft workspace visible.",
+      "description": "Hides the community and discovery tabs on the home screen, leaving only local drafts.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -551,7 +551,7 @@
     },
     {
       "name": "Hide Domestic Export Social Icons",
-      "description": "Hides domestic social sharing channels in ExportPictureView and PaintActivity export popups via TranslationEngine.dispatch.",
+      "description": "Hides domestic social channel rows in the image export dialog while keeping local save actions.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -583,7 +583,7 @@
     },
     {
       "name": "Hide Draft Cloud Badge",
-      "description": "Hides the 9 cloud sync status badges and progress strips on draft artwork thumbnails in DraftAdapter and DraftAdapter2.",
+      "description": "Hides cloud sync status icons and progress bars on draft thumbnails.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -615,7 +615,7 @@
     },
     {
       "name": "Hide Drawer VIP Banner",
-      "description": "Safely hides the promotional VIP membership banner inside the main navigation drawer with View.GONE.",
+      "description": "Hides the VIP membership banner in the navigation drawer.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -647,7 +647,7 @@
     },
     {
       "name": "Hide Exit Cloud Sync Option",
-      "description": "Hides the domestic cloud sync switch and storage notice inside the canvas exit confirmation dialog while preserving local save and exit actions.",
+      "description": "Hides cloud upload options in the canvas exit dialog while keeping local save and discard actions.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -679,7 +679,7 @@
     },
     {
       "name": "Hide Online Brush Shop",
-      "description": "Hides the online brush shop button inside the canvas quick pen picker while preserving all preset and imported brushes.",
+      "description": "Hides the online store button in the quick brush selector while keeping all local brushes.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -711,7 +711,7 @@
     },
     {
       "name": "Hide Online Canvas Templates",
-      "description": "Hides the online canvas template button on CreateCanvasActivity and centers the 3 local creation buttons with weightSum = 3.0f.",
+      "description": "Hides the online template button on the New Canvas screen and centers the three local creation options.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -743,7 +743,7 @@
     },
     {
       "name": "Hide Personalized Ads Setting",
-      "description": "Safely hides the domestic personalized ads preference row inside GeneralSettingActivity with View.GONE.",
+      "description": "Hides the personalized advertising switch in General Settings.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -775,7 +775,7 @@
     },
     {
       "name": "Hide Timelapse Export Social Icons",
-      "description": "Hides domestic social sharing buttons inside the timelapse video export panel while keeping local save and resolution choices intact.",
+      "description": "Hides domestic social channel buttons in the timelapse export dialog while keeping save and quality options.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -807,7 +807,7 @@
     },
     {
       "name": "Hide Top Bar Cloud Button",
-      "description": "Hides top bar cloud sync buttons and blocks native visibility resets and click handlers using the zero new method ref bridge.",
+      "description": "Hides the cloud sync icon on the gallery top bar and blocks accidental taps.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -839,7 +839,7 @@
     },
     {
       "name": "Instant Launch to Studio",
-      "description": "Skips the splash countdown on FlashActivity and preloads the brush engine directly into the draft gallery.",
+      "description": "Skips the startup countdown screen into the draft gallery while preserving external file open intents.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -871,7 +871,7 @@
     },
     {
       "name": "Language Pack Resources",
-      "description": "Bundles built-in localization dictionaries (English and Chinese source) and supports extensible community language packs.",
+      "description": "Bundles built-in Vietnamese, English, and Simplified Chinese JSON dictionaries inside the APK.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -902,7 +902,7 @@
     },
     {
       "name": "Lasso Tap-Outside Exit",
-      "description": "Lets artists tap once outside an active Lasso or selection area to confirm and exit selection mode back to the brush.",
+      "description": "Exits active Lasso selection with a single tap outside the selection while preserving Magic Wand, Polygonal Lasso, Move/Transform, and active guide bars.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -934,7 +934,7 @@
     },
     {
       "name": "Libre In App Settings Panel",
-      "description": "Adds the HuashijieLibre settings panel inside General Settings so you can tune options anytime.",
+      "description": "Adds the HuashijieLibre settings menu inside General Settings with update checks, credits, license info, and diagnostics export.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -965,7 +965,7 @@
     },
     {
       "name": "Local Artist Profile",
-      "description": "Maintains an offline artist profile in memory so local tools such as PDF export work smoothly without domestic phone login prompts.",
+      "description": "Provides an offline profile in memory when signed out so login-gated local tools such as PDF export work without signing in.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -997,7 +997,7 @@
     },
     {
       "name": "Narrow Button Text Auto Fit",
-      "description": "Scales text sizes and handles wrapping cleanly on narrow tabs, buttons, and dialogs for longer translated labels across non-Chinese scripts.",
+      "description": "Scales and wraps localized labels inside narrow buttons, tabs, and dialogs to prevent clipping.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -1029,7 +1029,7 @@
     },
     {
       "name": "Native Android Share Sheet",
-      "description": "Routes export sharing in PaintActivity to the Android System Share Sheet via Intent.createChooser instead of ShareSDK.",
+      "description": "Routes artwork, PSD, PDF, brush, frame sequence, and .hsj exports through the standard Android Share Sheet.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -1061,7 +1061,7 @@
     },
     {
       "name": "Native Signature Bypass",
-      "description": "Allows customized HuashijiePro builds to launch smoothly without failing internal signature checks.",
+      "description": "Preserves original native byte signatures when modifying libPaintLib.so so patched builds pass startup checks.",
       "category": null,
       "use": true,
       "dependencies": [],
@@ -1090,7 +1090,7 @@
     },
     {
       "name": "Replay Android Share Sheet",
-      "description": "Routes timelapse export sharing inside ReplayActivity to the Android System Share Sheet instead of ShareSDK.",
+      "description": "Routes timelapse video exports on the replay screen through the standard Android Share Sheet.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -1122,7 +1122,7 @@
     },
     {
       "name": "Suppress Splash Ad Loading",
-      "description": "Blocks splash advertisement ad slot loading checks inside FlashActivity independently of Instant Launch.",
+      "description": "Blocks startup splash ad requests independently of Instant Launch to Studio.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -1154,7 +1154,7 @@
     },
     {
       "name": "Two-Finger Reference Rotation",
-      "description": "Unlocks smooth two-finger free rotation inside the floating reference image window.",
+      "description": "Enables two-finger rotation inside the floating reference window with an 8-degree anti-tilt deadzone during pinch zoom.",
       "category": null,
       "use": true,
       "dependencies": [
@@ -1186,7 +1186,7 @@
     },
     {
       "name": "Watermark Free Timelapse Export",
-      "description": "Removes the brand watermark overlay during ReplayActivity preview and speedpaint video export while preserving video quality.",
+      "description": "Removes the corner brand watermark during timelapse playback and video export.",
       "category": null,
       "use": true,
       "dependencies": [

@@ -30,7 +30,7 @@ private val mainActivityInitViewFingerprint = Fingerprint(
 @Suppress("unused")
 val externalBrushImportPatch = bytecodePatch(
     name = "External Local Brush Scanning",
-    description = "Scans local ASBrush directories on startup and guards loaded brush package lists for offline brush import workflows.",
+    description = "Scans /sdcard/HuashijiePro/ASBrush on startup and keeps imported brush sets available offline.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

@@ -16,7 +16,7 @@ private const val TOGGLE_KEY = "libre_export_system_share_button"
 @Suppress("unused")
 val exportSystemShareButtonPatch = bytecodePatch(
     name = "Export Sheet Share Button",
-    description = "Adds a standalone Android System Share button next to Album and File inside the export sheet for both artwork and timelapse videos.",
+    description = "Adds a System Share button beside Album and File inside the image and timelapse export dialogs.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

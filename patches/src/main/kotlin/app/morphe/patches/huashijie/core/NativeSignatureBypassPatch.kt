@@ -999,7 +999,7 @@ internal fun patchNativeLibraryFile(libFile: File, patchArm64: Boolean) {
 @Suppress("unused")
 val nativeSignatureBypassPatch = rawResourcePatch(
     name = "Native Signature Bypass",
-    description = "Allows customized HuashijiePro builds to launch smoothly without failing internal signature checks.",
+    description = "Preserves original native byte signatures when modifying libPaintLib.so so patched builds pass startup checks.",
     default = true,
 ) {
     compatibleWith(HUASHIJIE_COMPATIBILITY)

@@ -52,7 +52,7 @@ private val mainFragment2OnClickFingerprint = Fingerprint(
 @Suppress("unused")
 val hideTopBarCloudButtonPatch = bytecodePatch(
     name = "Hide Top Bar Cloud Button",
-    description = "Hides top bar cloud sync buttons and blocks native visibility resets and click handlers using the zero new method ref bridge.",
+    description = "Hides the cloud sync icon on the gallery top bar and blocks accidental taps.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

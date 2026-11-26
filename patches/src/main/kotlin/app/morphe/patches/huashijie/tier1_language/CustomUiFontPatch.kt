@@ -26,7 +26,7 @@ private val drawApplicationOnCreateFingerprint = Fingerprint(
 @Suppress("unused")
 val customUiFontPatch = bytecodePatch(
     name = "Custom UI Font Injection",
-    description = "Applies your chosen .ttf or .otf fonts from /sdcard/HuashijiePro/fonts/ across the app while keeping bold and italic styles.",
+    description = "Applies .ttf or .otf fonts from /sdcard/HuashijiePro/fonts/ across the UI while keeping bold and italic styles.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

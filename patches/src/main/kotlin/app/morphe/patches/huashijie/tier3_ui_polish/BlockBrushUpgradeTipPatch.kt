@@ -30,7 +30,7 @@ private val scheduleBrushUpgradeTipFingerprint = Fingerprint(
 @Suppress("unused")
 val blockBrushUpgradeTipPatch = bytecodePatch(
     name = "Block Brush Upgrade Tip",
-    description = "Silences promotional brush upgrade banners and tooltips in SelectPenView while routing classes4.dex through TranslationEngine.dispatch.",
+    description = "Hides brush upgrade banners inside the brush selector.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

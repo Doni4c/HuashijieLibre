@@ -28,7 +28,7 @@ private val selectPenOnFinishInflateFingerprint = Fingerprint(
 @Suppress("unused")
 val hideBrushShopPatch = bytecodePatch(
     name = "Hide Online Brush Shop",
-    description = "Hides the online brush shop button inside the canvas quick pen picker while preserving all preset and imported brushes.",
+    description = "Hides the online store button in the quick brush selector while keeping all local brushes.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

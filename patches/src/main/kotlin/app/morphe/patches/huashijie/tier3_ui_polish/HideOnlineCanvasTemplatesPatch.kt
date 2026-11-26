@@ -27,7 +27,7 @@ private val createCanvasInitViewFingerprint = Fingerprint(
 @Suppress("unused")
 val hideOnlineCanvasTemplatesPatch = bytecodePatch(
     name = "Hide Online Canvas Templates",
-    description = "Hides the online canvas template button on CreateCanvasActivity and centers the 3 local creation buttons with weightSum = 3.0f.",
+    description = "Hides the online template button on the New Canvas screen and centers the three local creation options.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

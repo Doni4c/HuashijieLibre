@@ -27,7 +27,7 @@ private val mainActivityInitViewFingerprint = Fingerprint(
 @Suppress("unused")
 val hideBaiduBackupPatch = bytecodePatch(
     name = "Hide Baidu Cloud Backup Entry",
-    description = "Safely hides the domestic third-party Baidu Netdisk backup entry inside the main navigation drawer with View.GONE.",
+    description = "Hides the Baidu Netdisk backup entry in the navigation drawer.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)

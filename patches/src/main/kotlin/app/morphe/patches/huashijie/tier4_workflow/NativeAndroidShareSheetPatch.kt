@@ -111,7 +111,7 @@ internal fun BytecodePatchContext.registerRxFileToolTargets(classes: List<ClassD
 @Suppress("unused")
 val nativeAndroidShareSheetPatch = bytecodePatch(
     name = "Native Android Share Sheet",
-    description = "Routes export sharing in PaintActivity to the Android System Share Sheet via Intent.createChooser instead of ShareSDK.",
+    description = "Routes artwork, PSD, PDF, brush, frame sequence, and .hsj exports through the standard Android Share Sheet.",
     default = true,
 ) {
     dependsOn(nativeSignatureBypassPatch, libreSettingsPatch)
