@@ -4,7 +4,7 @@
 
 **Open-source Morphe patches for 画世界Pro v3.4.6: JSON UI translations, custom fonts, offline access to login-gated tools, and canvas controls.**
 
-[![Latest Release](https://img.shields.io/github/v/release/Doni4c/HuashijieLibre?include_prereleases&style=for-the-badge&logo=github&label=Release&color=0969DA)](https://github.com/Doni4c/HuashijieLibre/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.0--beta.3-0969DA?style=for-the-badge&logo=github)](https://github.com/Doni4c/HuashijieLibre/releases)
 [![Target App](https://img.shields.io/badge/Target-net.huanci.hsjpro%20v3.4.6%20%5B313%5D-1F883D?style=for-the-badge&logo=android)](https://github.com/Doni4c/HuashijieLibre/releases)
 [![Patches](https://img.shields.io/badge/Patches-38%20Modules-8250DF?style=for-the-badge)](#patch-catalog)
 [![Morphe Patcher](https://img.shields.io/badge/Morphe%20Patcher-v2.3.0-BF3989?style=for-the-badge)](https://morphe.software/)
